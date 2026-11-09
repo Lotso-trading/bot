@@ -34,6 +34,7 @@ export class BotRunner {
     const notifier = new DiscordWebhookAdapter({
       buyWebhookUrl: this.config.discordBuyWebhookUrl,
       sellWebhookUrl: this.config.discordSellWebhookUrl,
+      closedPositionsWebhookUrl: this.config.discordClosedPositionsWebhookUrl,
     });
 
     // Sélection de l'exécuteur selon le mode configuré

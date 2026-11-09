@@ -10,6 +10,7 @@ import type { INotifierPort } from "../../domain/ports/notifier.port.ts";
 export interface DiscordWebhookConfig {
   buyWebhookUrl?: string;
   sellWebhookUrl?: string;
+  closedPositionsWebhookUrl?: string;
   webhookUrl?: string;
 }
 
@@ -25,7 +26,8 @@ export class DiscordWebhookAdapter implements INotifierPort {
       this.sellWebhookUrl = options;
     } else if (options) {
       this.buyWebhookUrl = options.buyWebhookUrl || options.webhookUrl;
-      this.sellWebhookUrl = options.sellWebhookUrl || options.webhookUrl;
+      this.sellWebhookUrl =
+        options.closedPositionsWebhookUrl || options.sellWebhookUrl || options.webhookUrl;
     }
   }
 
@@ -104,17 +106,20 @@ export class DiscordWebhookAdapter implements INotifierPort {
     const marketUrl = this.getMarketUrl(marketSlug);
     const question = trade.marketQuestion || position?.marketQuestion || "Marché Polymarket";
     const outcome = trade.outcomeLabel || position?.outcomeLabel || "YES";
-    const pnlUsdc = position ? trade.costUsdc - trade.shares * position.avgEntryPrice : 0;
+    const investedUsdc = position ? trade.shares * position.avgEntryPrice : 0;
+    const pnlUsdc = position ? trade.costUsdc - investedUsdc : 0;
     const pnlSign = pnlUsdc >= 0 ? "+" : "";
+    const roiPercent = investedUsdc > 0 ? (pnlUsdc / investedUsdc) * 100 : 0;
+    const embedColor = pnlUsdc >= 0 ? 0x00c853 : 0xd50000;
 
     const payload: DiscordWebhookPayload = {
       username: "Lotso",
       embeds: [
         {
-          title: `🔴 Vente / Sortie ALL${dryRunBadge}`,
+          title: `🔴 Vente / Sortie ALL${dryRunBadge} [${pnlSign}${pnlUsdc.toFixed(2)} USDC]`,
           url: marketUrl,
           description: `Réplication de sortie intégrale de la baleine **${target.alias}**`,
-          color: 0xd50000, // Rouge
+          color: embedColor,
           fields: [
             {
               name: "Cible Copiée",
@@ -128,10 +133,9 @@ export class DiscordWebhookAdapter implements INotifierPort {
               value: `[${question}](${marketUrl})`,
               inline: false,
             },
-            { name: "Parts Vendues", value: `${trade.shares.toFixed(1)} parts`, inline: true },
             {
-              name: "Prix de Sortie",
-              value: `${trade.executedPrice.toFixed(3)} USDC`,
+              name: "Argent Investi (Mise)",
+              value: `**${investedUsdc.toFixed(2)} USDC**`,
               inline: true,
             },
             {
@@ -140,8 +144,19 @@ export class DiscordWebhookAdapter implements INotifierPort {
               inline: true,
             },
             {
-              name: "PnL Estimé",
-              value: `**${pnlSign}${pnlUsdc.toFixed(2)} USDC**`,
+              name: "Gains Réalisés (PnL)",
+              value: `**${pnlSign}${pnlUsdc.toFixed(2)} USDC** (${pnlSign}${roiPercent.toFixed(1)}%)`,
+              inline: true,
+            },
+            { name: "Parts Vendues", value: `${trade.shares.toFixed(1)} parts`, inline: true },
+            {
+              name: "Prix Moyen d'Entrée",
+              value: `${(position?.avgEntryPrice ?? 0).toFixed(3)} USDC`,
+              inline: true,
+            },
+            {
+              name: "Prix de Sortie",
+              value: `${trade.executedPrice.toFixed(3)} USDC`,
               inline: true,
             },
           ],

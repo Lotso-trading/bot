@@ -11,6 +11,7 @@ export interface BotRuntimeConfig {
   readonly apiInternalUrl: string;
   readonly discordBuyWebhookUrl?: string;
   readonly discordSellWebhookUrl?: string;
+  readonly discordClosedPositionsWebhookUrl?: string;
   readonly discordWebhookUrl?: string;
   readonly dryRun: boolean;
   readonly defaultSimulatedBalanceUsdc: number;
@@ -36,6 +37,11 @@ export function loadBotConfig(): BotRuntimeConfig {
       Deno.env.get("DISCORD_BUY_WEBHOOK_URL") || Deno.env.get("DISCORD_WEBHOOK_URL") || undefined,
     discordSellWebhookUrl:
       Deno.env.get("DISCORD_SELL_WEBHOOK_URL") || Deno.env.get("DISCORD_WEBHOOK_URL") || undefined,
+    discordClosedPositionsWebhookUrl:
+      Deno.env.get("DISCORD_CLOSED_POSITIONS_WEBHOOK_URL") ||
+      Deno.env.get("DISCORD_SELL_WEBHOOK_URL") ||
+      Deno.env.get("DISCORD_WEBHOOK_URL") ||
+      undefined,
     discordWebhookUrl: Deno.env.get("DISCORD_WEBHOOK_URL") || undefined,
     dryRun: Deno.env.get("DRY_RUN") !== "false",
     defaultSimulatedBalanceUsdc: Number(Deno.env.get("SIMULATED_BALANCE_USDC")) || 1000.0,
