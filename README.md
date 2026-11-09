@@ -14,9 +14,9 @@ Le micro-service `bot` est le **moteur d'exécution autonome haute fréquence** 
 
 - **Écoute Hybride Dédupliquée** : Surveillance en quasi temps-réel via la Data API Polymarket couplée au streaming d'événements on-chain Polygon RPC (`TransferSingle`, `OrderFill`). Un cache LRU de déduplication élimine les doublons.
 - **RiskManager Institutionnel** :
-  - *Slippage Guard* : Rejet automatique des ordres si l'écart de prix dépasse le seuil paramétré (ex: 3%).
-  - *Bornes de Cote (Min/Max Price)* : Refus des positions aux cotes extrêmes (ex: < 0.05 ou > 0.95).
-  - *Dimensionnement Dynamique* : Calcul de la taille de l'ordre en pourcentage fixe du solde USDC disponible sur Polygon.
+  - _Slippage Guard_ : Rejet automatique des ordres si l'écart de prix dépasse le seuil paramétré (ex: 3%).
+  - _Bornes de Cote (Min/Max Price)_ : Refus des positions aux cotes extrêmes (ex: < 0.05 ou > 0.95).
+  - _Dimensionnement Dynamique_ : Calcul de la taille de l'ordre en pourcentage fixe du solde USDC disponible sur Polygon.
 - **Règle de Sortie Intégrale (`ALL`)** : Détection et réplication immédiate des ordres `SELL` pour liquider ou réduire l'exposition au même rythme que la baleine.
 - **Exécution Double Mode** :
   - `Dry-Run` : Simulation intégrale en mémoire pour tester stratégies et alertes sans risquer de capital réel.

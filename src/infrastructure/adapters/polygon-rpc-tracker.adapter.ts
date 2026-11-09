@@ -1,4 +1,4 @@
-import type { DetectedTrade, TargetTrader } from "@polymarket-copy/shared";
+import type { TargetTrader } from "@polymarket-copy/shared";
 import { ethers } from "ethers";
 import type { ITrackerPort, OnTradeCallback } from "../../domain/ports/tracker.port.ts";
 
