@@ -8,6 +8,8 @@ import axios from "axios";
 import type { IApiClientPort } from "../../domain/ports/api-client.port.ts";
 
 export class ApiBackendClientAdapter implements IApiClientPort {
+  private lastKnownPositions: OpenPosition[] = [];
+
   constructor(private readonly baseUrl: string) {}
 
   async getActiveTargets(): Promise<TargetTrader[]> {
@@ -64,11 +66,16 @@ export class ApiBackendClientAdapter implements IApiClientPort {
         { timeout: 5000 }
       );
       if (res.data?.success && Array.isArray(res.data.data)) {
+        this.lastKnownPositions = res.data.data;
         return res.data.data;
       }
-      return [];
-    } catch (_err: unknown) {
-      return [];
+      return this.lastKnownPositions;
+    } catch (err: unknown) {
+      console.warn(
+        "[ApiClient] Échec de récupération des positions ouvertes (utilisation du cache de sécurité):",
+        err instanceof Error ? err.message : String(err)
+      );
+      return this.lastKnownPositions;
     }
   }
 

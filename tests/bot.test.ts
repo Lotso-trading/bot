@@ -87,6 +87,22 @@ Deno.test("EvaluateTradeUseCase - valide le slippage et les bornes de cote", () 
   const highPriceTrade = { ...baseTrade, price: 0.95 };
   const eval4 = evaluator.evaluate(highPriceTrade, 0.95, config);
   assertEquals(eval4.isValid, false);
+
+  // ConditionId invalide (adresse Ethereum de contrat, ex: 0xE111...) -> Rejeté
+  const contractAddrTrade = {
+    ...baseTrade,
+    conditionId: "0xE111180000d2663C0091e4f400237545B87B996B",
+  };
+  const eval5 = evaluator.evaluate(contractAddrTrade, 0.505, config);
+  assertEquals(eval5.isValid, false);
+  if (!eval5.isValid) {
+    assertEquals(eval5.reason.includes("CONDITION_ID_INVALIDE"), true);
+  }
+
+  // ConditionId invalide ("0x" ou vide) -> Rejeté
+  const emptyConditionTrade = { ...baseTrade, conditionId: "0x" };
+  const eval6 = evaluator.evaluate(emptyConditionTrade, 0.505, config);
+  assertEquals(eval6.isValid, false);
 });
 
 Deno.test("HandleExitUseCase - gère les sorties partielles et totales (ALL)", () => {

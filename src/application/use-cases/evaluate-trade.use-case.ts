@@ -10,6 +10,18 @@ export class EvaluateTradeUseCase {
     currentMarketPrice: number | null,
     riskConfig: RiskConfig
   ): EvaluationOutcome {
+    // 0. Vérification de validité du conditionId (ne doit pas être une adresse Ethereum de contrat)
+    if (
+      !trade.conditionId ||
+      trade.conditionId === "0x" ||
+      /^0x[a-fA-F0-9]{40}$/i.test(trade.conditionId)
+    ) {
+      return {
+        isValid: false,
+        reason: `CONDITION_ID_INVALIDE (Le conditionId ne peut pas être une adresse Ethereum: ${trade.conditionId})`,
+      };
+    }
+
     // 1. Vérification des bornes de cote
     if (trade.price < riskConfig.minPrice) {
       return {

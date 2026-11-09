@@ -77,7 +77,7 @@ export class PolygonRpcTrackerAdapter implements ITrackerPort {
     console.log("[PolygonRpcTracker] Arrêt de l'écouteur Polygon RPC");
   }
 
-  private handleLog(log: ethers.Log, onTrade: OnTradeCallback): void {
+  private handleLog(log: ethers.Log, _onTrade: OnTradeCallback): void {
     try {
       // Les indexés sont dans topics: topic[1] = maker, topic[2] = taker
       const maker = log.topics[1] ? ethers.dataSlice(log.topics[1], 12).toLowerCase() : "";
@@ -91,25 +91,13 @@ export class PolygonRpcTrackerAdapter implements ITrackerPort {
 
       if (!matchedTarget) return;
 
-      const detected: DetectedTrade = {
-        id: `onchain_${log.transactionHash}_${log.index}`,
-        targetAddress: matchedTarget,
-        marketSlug: "polygon-onchain",
-        marketQuestion: "Transaction On-Chain CTF Exchange",
-        conditionId: log.address,
-        assetAddress: log.address,
-        outcomeIndex: 0,
-        outcomeLabel: "Outcome",
-        side: "BUY",
-        price: 0.5,
-        sizeShares: 10,
-        sizeUsdc: 5,
-        transactionHash: log.transactionHash,
-        detectedAt: Date.now(),
-        source: "POLYGON_RPC",
-      };
-
-      onTrade(detected);
+      // Note de sécurité : L'événement OrderFilled on-chain nécessite un décodage complet de l'ABI
+      // (extraction de makerAssetId / takerAssetId) et une résolution du conditionId via le token ID.
+      // Émettre un trade mocké avec log.address comme conditionId crée des positions fantômes corrompues.
+      // En attendant le décodeur ABI complet, nous loggons la détection sans émettre d'ordre fictif.
+      console.log(
+        `[PolygonRpcTracker] Événement on-chain détecté pour ${matchedTarget} (tx: ${log.transactionHash.slice(0, 10)}...) - Décodage ABI en attente`
+      );
     } catch (_err: unknown) {
       // Ignoré
     }
