@@ -1,0 +1,25 @@
+{
+  "name": "@polymarket-copy/bot",
+  "version": "1.0.0",
+  "exports": "./src/main.ts",
+  "imports": {
+    "@polymarket-copy/shared": "../../packages/shared/src/index.ts",
+    "@polymarket/clob-client": "npm:@polymarket/clob-client@^5.8.1",
+    "ethers": "npm:ethers@^6.17.0",
+    "viem": "npm:viem@^2.21.0",
+    "axios": "npm:axios@^1.21.0",
+    "ws": "npm:ws@^8.22.1",
+    "zod": "npm:zod@^4.6.7"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "tasks": {
+    "dev": "deno run -A --watch src/main.ts",
+    "start": "deno run -A src/main.ts",
+    "test": "deno test tests/"
+  }
+}
