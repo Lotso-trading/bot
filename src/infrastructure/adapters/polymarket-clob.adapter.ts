@@ -73,7 +73,7 @@ export class PolymarketClobAdapter implements IExecutorPort {
       const tickSize = Number(tickSizeStr) || 0.01;
       const rounded = Math.round(targetPrice / tickSize) * tickSize;
       return Math.round(rounded * 1000) / 1000;
-    } catch (_err) {
+    } catch (_err: unknown) {
       return Math.round(targetPrice * 100) / 100;
     }
   }

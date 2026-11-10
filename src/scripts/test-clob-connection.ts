@@ -26,12 +26,12 @@ async function main(): Promise<void> {
     privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`
   ) as `0x${string}`;
 
-  let account;
+  let account: ReturnType<typeof privateKeyToAccount>;
   try {
     account = privateKeyToAccount(formattedKey);
     console.log(`   ✅ Clé privée valide.`);
     console.log(`   🔑 Adresse Signer dérivée : ${account.address}`);
-  } catch (err) {
+  } catch (err: unknown) {
     console.error(`   ❌ ERREUR de dérivation de l'adresse :`, err);
     Deno.exit(1);
   }
@@ -94,8 +94,12 @@ async function main(): Promise<void> {
 
     if (allowanceUsdc <= 0 && balanceUsdc > 0) {
       console.error("   ❌ ALERTE BLOQUANTE : L'allowance est à 0.00 USDC !");
-      console.error("      Bien que vous ayez des USDC, Polymarket n'est pas autorisé à les dépenser.");
-      console.error("      ➡️ Allez sur https://polymarket.com et faites une première transaction ou validez l'approbation USDC.");
+      console.error(
+        "      Bien que vous ayez des USDC, Polymarket n'est pas autorisé à les dépenser."
+      );
+      console.error(
+        "      ➡️ Allez sur https://polymarket.com et faites une première transaction ou validez l'approbation USDC."
+      );
     } else if (allowanceUsdc > 0) {
       console.log("   ✅ Allowance active et suffisante pour trader.");
     }
@@ -112,7 +116,9 @@ async function main(): Promise<void> {
 
     if (sampleToken?.token_id) {
       console.log(`   🎯 Marché test trouvé : ${marketsJson.data[0].question}`);
-      console.log(`   🪙 Token ID test : ${sampleToken.token_id.slice(0, 16)}... (${sampleToken.outcome})`);
+      console.log(
+        `   🪙 Token ID test : ${sampleToken.token_id.slice(0, 16)}... (${sampleToken.outcome})`
+      );
 
       const price = await client.getPrice(sampleToken.token_id, Side.BUY);
       const tickSize = await client.getTickSize(sampleToken.token_id);
