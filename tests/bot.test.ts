@@ -14,6 +14,7 @@ import type { IApiClientPort } from "../src/domain/ports/api-client.port.ts";
 import type { IExecutorPort } from "../src/domain/ports/executor.port.ts";
 import type { INotifierPort } from "../src/domain/ports/notifier.port.ts";
 import { Deduplicator } from "../src/infrastructure/deduplication/deduplicator.ts";
+import { PolymarketClobAdapter } from "../src/infrastructure/adapters/polymarket-clob.adapter.ts";
 
 Deno.test("CalculatePositionSizeUseCase - calcule le pourcentage exact du solde", () => {
   const sizer = new CalculatePositionSizeUseCase();
@@ -350,4 +351,32 @@ Deno.test("ReplicateTradeUseCase - calcule le capital effectif et le réinvestis
   assertEquals(resInvested.botRemainingCash, 3.0);
   assertEquals(resInvested.effectiveBalance, 3.0);
   assertEquals(resInvested.isAllocatedLimitHit, true);
+});
+
+Deno.test("PolymarketClobAdapter - résout le Token ID ERC1155 plutôt que le conditionId", () => {
+  const adapter = new PolymarketClobAdapter(
+    "https://clob.polymarket.com",
+    "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+  );
+
+  // Cas 1 : assetAddress est un grand token ID décimal (77 chiffres)
+  const tokenDecimal = "4764842916462157287738418815193165769775706842468360015637456523413749678364";
+  const resolved = adapter.resolveTokenId({
+    conditionId: "0xb62f71aef4c9972ddb75ec977b48156e1cc72e30f0e36b0f12c14de7fd94c777",
+    assetAddress: tokenDecimal,
+  });
+  assertEquals(resolved, tokenDecimal);
+
+  // Cas 2 : assetAddress est vide -> fallback sur conditionId
+  const fallback = adapter.resolveTokenId({
+    conditionId: "0xb62f71aef4c9972ddb75ec977b48156e1cc72e30f0e36b0f12c14de7fd94c777",
+  });
+  assertEquals(fallback, "0xb62f71aef4c9972ddb75ec977b48156e1cc72e30f0e36b0f12c14de7fd94c777");
+
+  // Cas 3 : assetAddress est une adresse de contrat (40 hex chars) -> non valide comme token ID, fallback
+  const contractAddrFallback = adapter.resolveTokenId({
+    conditionId: "0xb62f71aef4c9972ddb75ec977b48156e1cc72e30f0e36b0f12c14de7fd94c777",
+    assetAddress: "0x4bfb41d5b3570defd03c39a9a4d8de6bd8b8982e",
+  });
+  assertEquals(contractAddrFallback, "0xb62f71aef4c9972ddb75ec977b48156e1cc72e30f0e36b0f12c14de7fd94c777");
 });
