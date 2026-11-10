@@ -55,6 +55,8 @@ Deno.test("EvaluateTradeUseCase - valide le slippage et les bornes de cote", () 
     dryRun: true,
     maxAllocatedCapitalUsdc: 0,
     profitReinvestmentPercent: 50.0,
+    isBotRunning: true,
+    isBotOnline: true,
   };
 
   const baseTrade: DetectedTrade = {
@@ -199,6 +201,7 @@ Deno.test("ReplicateTradeUseCase - bloque strictement les achats si le portefeui
       maxAllocatedCapitalUsdc: 0,
       profitReinvestmentPercent: 50.0,
       isBotRunning: true,
+      isBotOnline: true,
     }),
     getOpenPosition: async () => null,
     getAllOpenPositions: async () => [],
@@ -206,6 +209,8 @@ Deno.test("ReplicateTradeUseCase - bloque strictement les achats si le portefeui
       recordedTrade = t;
       return t;
     },
+    sendHeartbeat: async () => {},
+    sendShutdown: async () => {},
   };
 
   const mockExecutor = {
@@ -300,6 +305,8 @@ Deno.test("ReplicateTradeUseCase - calcule le capital effectif et le réinvestis
     dryRun: true,
     maxAllocatedCapitalUsdc: 100.0, // 100 $ de base alloués
     profitReinvestmentPercent: 50.0, // 50% des bénéfices réinvestis
+    isBotRunning: true,
+    isBotOnline: true,
   };
 
   // Scénario 1 : 500 $ sur le portefeuille, 100 $ alloués, 50 $ de gains à 50% -> 125 $ utilisables

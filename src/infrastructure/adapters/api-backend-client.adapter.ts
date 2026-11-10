@@ -28,11 +28,11 @@ export class ApiBackendClientAdapter implements IApiClientPort {
     }
   }
 
-  async getBotConfig(): Promise<RiskConfig & { isBotRunning: boolean }> {
+  async getBotConfig(): Promise<RiskConfig> {
     try {
       const res = await axios.get<{
         success: boolean;
-        data: RiskConfig & { isBotRunning: boolean };
+        data: RiskConfig;
       }>(`${this.baseUrl}/api/config`, { timeout: 5000 });
       if (res.data?.success && res.data.data) {
         return res.data.data;
@@ -58,7 +58,24 @@ export class ApiBackendClientAdapter implements IApiClientPort {
       maxAllocatedCapitalUsdc: 0,
       profitReinvestmentPercent: 50.0,
       isBotRunning: true,
+      isBotOnline: true,
     };
+  }
+
+  async sendHeartbeat(): Promise<void> {
+    try {
+      await axios.post(`${this.baseUrl}/api/config/heartbeat`, {}, { timeout: 3000 });
+    } catch (_err: unknown) {
+      // Ignoré si l'API est temporairement indisponible
+    }
+  }
+
+  async sendShutdown(): Promise<void> {
+    try {
+      await axios.post(`${this.baseUrl}/api/config/shutdown`, {}, { timeout: 2000 });
+    } catch (_err: unknown) {
+      // Ignoré lors de la fermeture
+    }
   }
 
   async getAllOpenPositions(): Promise<OpenPosition[]> {

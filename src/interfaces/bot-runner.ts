@@ -65,8 +65,9 @@ export class BotRunner {
 
     this.tracker = new HybridTrackerAdapter(apiTracker, polygonTracker);
 
-    // Chargement des cibles depuis l'API
+    // Chargement des cibles depuis l'API et premier heartbeat
     await this.refreshTargets(apiClient);
+    await apiClient.sendHeartbeat();
 
     // Callback déclenché à chaque détection de trade
     const onTradeDetected = async (trade: DetectedTrade): Promise<void> => {
@@ -91,16 +92,17 @@ export class BotRunner {
     const initialTargets = Array.from(this.targetMap.values());
     await this.tracker.start(initialTargets, onTradeDetected);
 
-    // Boucle périodique de synchronisation des cibles (toutes les 15 secondes)
+    // Boucle périodique de synchronisation des cibles et heartbeat (toutes les 15 secondes)
     this.refreshTimer = setInterval(async () => {
       if (!this.isRunning) return;
+      await apiClient.sendHeartbeat();
       await this.refreshTargets(apiClient);
       if (this.tracker) {
         this.tracker.updateTargets(Array.from(this.targetMap.values()));
       }
     }, 15000);
 
-    this.setupGracefulShutdown();
+    this.setupGracefulShutdown(apiClient);
   }
 
   private async refreshTargets(apiClient: ApiBackendClientAdapter): Promise<void> {
@@ -114,12 +116,17 @@ export class BotRunner {
     }
   }
 
-  private setupGracefulShutdown(): void {
+  private setupGracefulShutdown(apiClient: ApiBackendClientAdapter): void {
     const shutdown = async () => {
       console.log("\n[BotRunner] Signal d'arrêt reçu, fermeture propre...");
       this.isRunning = false;
       if (this.refreshTimer !== null) {
         clearInterval(this.refreshTimer);
+      }
+      try {
+        await apiClient.sendShutdown();
+      } catch (_err: unknown) {
+        // Ignoré lors de la fermeture
       }
       if (this.tracker) {
         await this.tracker.stop();
