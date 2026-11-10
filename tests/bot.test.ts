@@ -9,6 +9,7 @@ import type {
 import { CalculatePositionSizeUseCase } from "../src/application/use-cases/calculate-size.use-case.ts";
 import { EvaluateTradeUseCase } from "../src/application/use-cases/evaluate-trade.use-case.ts";
 import { HandleExitUseCase } from "../src/application/use-cases/handle-exit.use-case.ts";
+import { ReplicateTradeUseCase } from "../src/application/use-cases/replicate-trade.use-case.ts";
 import type { IApiClientPort } from "../src/domain/ports/api-client.port.ts";
 import type { IExecutorPort } from "../src/domain/ports/executor.port.ts";
 import type { INotifierPort } from "../src/domain/ports/notifier.port.ts";
@@ -51,6 +52,8 @@ Deno.test("EvaluateTradeUseCase - valide le slippage et les bornes de cote", () 
     maxPrice: 0.9,
     copySellOrders: true,
     dryRun: true,
+    maxAllocatedCapitalUsdc: 0,
+    profitReinvestmentPercent: 50.0,
   };
 
   const baseTrade: DetectedTrade = {
@@ -192,6 +195,8 @@ Deno.test("ReplicateTradeUseCase - bloque strictement les achats si le portefeui
       maxPrice: 0.9,
       copySellOrders: true,
       dryRun: true,
+      maxAllocatedCapitalUsdc: 0,
+      profitReinvestmentPercent: 50.0,
       isBotRunning: true,
     }),
     getOpenPosition: async () => null,
@@ -265,4 +270,84 @@ Deno.test("ReplicateTradeUseCase - bloque strictement les achats si le portefeui
   assertEquals(trade !== null, true);
   assertEquals(trade?.status, "REJECTED");
   assertEquals(trade?.rejectionReason?.includes("SOLDE_INSUFFISANT"), true);
+});
+
+Deno.test("ReplicateTradeUseCase - calcule le capital effectif et le réinvestissement des bénéfices", async () => {
+  const mockApiClient = {
+    getMetrics: async () => ({
+      realizedPnlUsdc: 50.0, // 50 $ de gains réalisés
+      availableCashUsdc: 550.0,
+    }),
+  };
+
+  const useCase = new ReplicateTradeUseCase(
+    mockApiClient as unknown as IApiClientPort,
+    {} as unknown as IExecutorPort,
+    {} as unknown as INotifierPort
+  );
+
+  const baseConfig: RiskConfig = {
+    balancePercentPerTrade: 0.03,
+    maxSlippagePercent: 2.0,
+    maxCapPerTradeUsdc: 50.0,
+    maxExposurePerMarketUsdc: 150.0,
+    maxExposurePerTargetUsdc: 300.0,
+    minCashReserveUsdc: 5.0,
+    minPrice: 0.05,
+    maxPrice: 0.9,
+    copySellOrders: true,
+    dryRun: true,
+    maxAllocatedCapitalUsdc: 100.0, // 100 $ de base alloués
+    profitReinvestmentPercent: 50.0, // 50% des bénéfices réinvestis
+  };
+
+  // Scénario 1 : 500 $ sur le portefeuille, 100 $ alloués, 50 $ de gains à 50% -> 125 $ utilisables
+  const res50 = await useCase.calculateEffectiveBalance(550.0, baseConfig, []);
+  assertEquals(res50.maxBotBudget, 125.0); // 100 $ + (50 * 50%) = 125 $
+  assertEquals(res50.effectiveBalance, 125.0);
+
+  // Scénario 2 : 0% de réinvestissement -> les 50 $ de gains sont sanctuarisés, le bot n'a que 100 $
+  const config0Percent: RiskConfig = {
+    ...baseConfig,
+    profitReinvestmentPercent: 0.0,
+  };
+  const res0 = await useCase.calculateEffectiveBalance(550.0, config0Percent, []);
+  assertEquals(res0.maxBotBudget, 100.0); // 100 $ + 0 $
+  assertEquals(res0.effectiveBalance, 100.0);
+
+  // Scénario 3 : 100% de réinvestissement -> 100 $ + 50 $ = 150 $
+  const config100Percent: RiskConfig = {
+    ...baseConfig,
+    profitReinvestmentPercent: 100.0,
+  };
+  const res100 = await useCase.calculateEffectiveBalance(550.0, config100Percent, []);
+  assertEquals(res100.maxBotBudget, 150.0);
+  assertEquals(res100.effectiveBalance, 150.0);
+
+  // Scénario 4 : Déjà 122 $ investis sur un budget de 125 $ -> reste 3 $ <= réserve (5 $)
+  const positions = [
+    {
+      id: "pos-1",
+      conditionId: "c-1",
+      targetAddress: "0x123",
+      outcomeLabel: "Yes",
+      marketQuestion: "Test",
+      totalShares: 200,
+      totalInvestedUsdc: 122.0,
+      avgEntryPrice: 0.61,
+      currentPrice: 0.65,
+      currentValueUsdc: 130.0,
+      unrealizedPnlUsdc: 8.0,
+      openedAt: Date.now(),
+      updatedAt: Date.now(),
+    },
+  ];
+  const resInvested = await useCase.calculateEffectiveBalance(
+    550.0,
+    baseConfig,
+    positions as unknown as OpenPosition[]
+  );
+  assertEquals(resInvested.botRemainingCash, 3.0);
+  assertEquals(resInvested.effectiveBalance, 3.0);
+  assertEquals(resInvested.isAllocatedLimitHit, true);
 });

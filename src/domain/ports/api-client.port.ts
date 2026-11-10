@@ -10,5 +10,6 @@ export interface IApiClientPort {
   getBotConfig(): Promise<RiskConfig & { isBotRunning: boolean }>;
   getOpenPosition(conditionId: string): Promise<OpenPosition | null>;
   getAllOpenPositions(): Promise<OpenPosition[]>;
+  getMetrics?(): Promise<{ realizedPnlUsdc: number; availableCashUsdc?: number } | null>;
   recordTrade(trade: ExecutedTrade): Promise<ExecutedTrade>;
 }

@@ -55,6 +55,8 @@ export class ApiBackendClientAdapter implements IApiClientPort {
       maxPrice: 0.9,
       copySellOrders: true,
       dryRun: true,
+      maxAllocatedCapitalUsdc: 0,
+      profitReinvestmentPercent: 50.0,
       isBotRunning: true,
     };
   }
@@ -82,6 +84,21 @@ export class ApiBackendClientAdapter implements IApiClientPort {
   async getOpenPosition(conditionId: string): Promise<OpenPosition | null> {
     const positions = await this.getAllOpenPositions();
     return positions.find((p) => p.conditionId === conditionId) || null;
+  }
+
+  async getMetrics(): Promise<{ realizedPnlUsdc: number; availableCashUsdc?: number } | null> {
+    try {
+      const res = await axios.get<{
+        success: boolean;
+        data?: { realizedPnlUsdc: number; availableCashUsdc?: number };
+      }>(`${this.baseUrl}/api/metrics`, { timeout: 5000 });
+      if (res.data?.success && res.data.data) {
+        return res.data.data;
+      }
+      return null;
+    } catch (_err: unknown) {
+      return null;
+    }
   }
 
   async recordTrade(trade: ExecutedTrade): Promise<ExecutedTrade> {

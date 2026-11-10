@@ -1,4 +1,10 @@
-import type { DetectedTrade, ExecutedTrade, TargetTrader } from "@polymarket-copy/shared";
+import type {
+  DetectedTrade,
+  ExecutedTrade,
+  OpenPosition,
+  RiskConfig,
+  TargetTrader,
+} from "@polymarket-copy/shared";
 import type { IApiClientPort } from "../../domain/ports/api-client.port.ts";
 import type { IExecutorPort } from "../../domain/ports/executor.port.ts";
 import type { INotifierPort } from "../../domain/ports/notifier.port.ts";
@@ -27,11 +33,19 @@ export class ReplicateTradeUseCase {
 
     // --- BRANCHE ACHAT (BUY) ---
     if (trade.side === "BUY") {
-      // 1. RÈGLE STRICTE : Portefeuille vide / Réserve de cash minimale
-      const availableBalance = await this.executor.getAvailableBalanceUsdc();
+      const allPositions = await this.apiClient.getAllOpenPositions();
+      const rawWalletBalance = await this.executor.getAvailableBalanceUsdc();
       const minReserve = config.minCashReserveUsdc ?? 5.0;
-      if (availableBalance <= minReserve) {
-        const reason = `SOLDE_INSUFFISANT : Portefeuille vide (Cash disponible: ${availableBalance.toFixed(2)} USDC <= Réserve min: ${minReserve.toFixed(2)} USDC)`;
+
+      // 1. RÈGLE STRICTE : Portefeuille vide ou Capital alloué au bot atteint
+      const { effectiveBalance, isAllocatedLimitHit, maxBotBudget, botRemainingCash } =
+        await this.calculateEffectiveBalance(rawWalletBalance, config, allPositions);
+
+      if (effectiveBalance <= minReserve) {
+        const reason =
+          config.maxAllocatedCapitalUsdc > 0 && isAllocatedLimitHit
+            ? `SOLDE_INSUFFISANT : Capital alloué au bot atteint (Budget restant: ${botRemainingCash.toFixed(2)} USDC <= Réserve: ${minReserve.toFixed(2)} USDC, Plafond max: ${maxBotBudget.toFixed(2)} USDC)`
+            : `SOLDE_INSUFFISANT : Portefeuille vide (Cash disponible: ${effectiveBalance.toFixed(2)} USDC <= Réserve min: ${minReserve.toFixed(2)} USDC)`;
         await this.handleRejection(trade, target, reason);
         return null;
       }
@@ -46,7 +60,6 @@ export class ReplicateTradeUseCase {
       }
 
       // 3. RÈGLE PLAFOND D'EXPOSITION PAR MARCHÉ ET PAR BALEINE
-      const allPositions = await this.apiClient.getAllOpenPositions();
       const existingMarketPosition = allPositions.find((p) => p.conditionId === trade.conditionId);
       const currentMarketExposure = existingMarketPosition?.totalInvestedUsdc ?? 0;
       const maxMarketExposure = config.maxExposurePerMarketUsdc ?? 150.0;
@@ -72,9 +85,9 @@ export class ReplicateTradeUseCase {
         return null;
       }
 
-      // 4. Calcul du dimensionnement avec respect des plafonds
+      // 4. Calcul du dimensionnement avec respect des plafonds et du capital alloué
       let allocatedSizeUsdc = this.calculateSize.calculate(
-        availableBalance,
+        effectiveBalance,
         config.balancePercentPerTrade,
         config.maxCapPerTradeUsdc,
         target.weightMultiplier,
@@ -149,6 +162,43 @@ export class ReplicateTradeUseCase {
     }
 
     return null;
+  }
+
+  async calculateEffectiveBalance(
+    rawWalletBalance: number,
+    config: RiskConfig,
+    allPositions: OpenPosition[]
+  ): Promise<{
+    effectiveBalance: number;
+    isAllocatedLimitHit: boolean;
+    maxBotBudget: number;
+    botRemainingCash: number;
+  }> {
+    if (!config.maxAllocatedCapitalUsdc || config.maxAllocatedCapitalUsdc <= 0) {
+      return {
+        effectiveBalance: rawWalletBalance,
+        isAllocatedLimitHit: false,
+        maxBotBudget: rawWalletBalance,
+        botRemainingCash: rawWalletBalance,
+      };
+    }
+
+    const metrics = (await this.apiClient.getMetrics?.()) ?? null;
+    const realizedPnl = metrics?.realizedPnlUsdc ?? 0;
+    const reinvestRate = (config.profitReinvestmentPercent ?? 50.0) / 100;
+    const allowedGains = realizedPnl > 0 ? realizedPnl * reinvestRate : realizedPnl;
+    const maxBotBudget = Math.max(0, config.maxAllocatedCapitalUsdc + allowedGains);
+
+    const totalInvested = allPositions.reduce((sum, p) => sum + (p.totalInvestedUsdc || 0), 0);
+    const botRemainingCash = Math.max(0, maxBotBudget - totalInvested);
+    const effectiveBalance = Math.min(rawWalletBalance, botRemainingCash);
+
+    return {
+      effectiveBalance,
+      isAllocatedLimitHit: botRemainingCash < rawWalletBalance,
+      maxBotBudget,
+      botRemainingCash,
+    };
   }
 
   private async handleRejection(
