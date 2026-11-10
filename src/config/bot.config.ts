@@ -9,6 +9,7 @@ export interface BotRuntimeConfig {
   readonly ctfExchangeAddress: string;
   readonly negRiskExchangeAddress: string;
   readonly apiInternalUrl: string;
+  readonly apiWsUrl: string;
   readonly discordBuyWebhookUrl?: string;
   readonly discordSellWebhookUrl?: string;
   readonly discordClosedPositionsWebhookUrl?: string;
@@ -33,6 +34,11 @@ export function loadBotConfig(): BotRuntimeConfig {
     negRiskExchangeAddress:
       Deno.env.get("NEG_RISK_EXCHANGE_ADDRESS") || "0xe2222d279d744050d28e00520010520000310F59",
     apiInternalUrl: Deno.env.get("API_INTERNAL_URL") || "http://localhost:3000",
+    apiWsUrl:
+      Deno.env.get("API_WS_URL") ||
+      (Deno.env.get("API_INTERNAL_URL")
+        ? (Deno.env.get("API_INTERNAL_URL") ?? "").replace(/^http/, "ws").replace(/:3000$/, ":3001")
+        : "ws://localhost:3001"),
     discordBuyWebhookUrl:
       Deno.env.get("DISCORD_BUY_WEBHOOK_URL") || Deno.env.get("DISCORD_WEBHOOK_URL") || undefined,
     discordSellWebhookUrl:

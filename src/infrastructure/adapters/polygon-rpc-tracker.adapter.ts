@@ -6,7 +6,7 @@ export class PolygonRpcTrackerAdapter implements ITrackerPort {
   private targetAddresses: Set<string> = new Set();
   private isRunning = false;
   private provider: ethers.JsonRpcProvider | null = null;
-  private pollInterval: ReturnType<typeof setInterval> | null = null;
+  private wsProvider: ethers.WebSocketProvider | null = null;
 
   // Topic standard de l'événement OrderFilled sur les contrats CTF Polymarket V2
   private readonly orderFilledTopic =
@@ -14,24 +14,51 @@ export class PolygonRpcTrackerAdapter implements ITrackerPort {
 
   constructor(
     private readonly rpcUrl: string,
-    private readonly exchangeAddress: string
+    private readonly exchangeAddress: string,
+    private readonly wsRpcUrl?: string
   ) {}
 
   async start(targets: TargetTrader[], onTrade: OnTradeCallback): Promise<void> {
     this.updateTargets(targets);
     this.isRunning = true;
 
+    // Priorité 1 : Connexion WebSocket native (0 latence, 100% push)
+    if (
+      this.wsRpcUrl &&
+      (this.wsRpcUrl.startsWith("ws://") || this.wsRpcUrl.startsWith("wss://"))
+    ) {
+      try {
+        this.wsProvider = new ethers.WebSocketProvider(this.wsRpcUrl);
+        console.log(`[PolygonRpcTracker] Connecté au flux WebSocket Polygon (${this.wsRpcUrl})`);
+
+        const filter = {
+          address: this.exchangeAddress,
+          topics: [this.orderFilledTopic],
+        };
+
+        this.wsProvider.on(filter, (log: ethers.Log) => {
+          if (!this.isRunning) return;
+          this.handleLog(log, onTrade);
+        });
+        return;
+      } catch (err: unknown) {
+        console.warn(
+          "[PolygonRpcTracker] Échec connexion WebSocket Polygon, bascule sur provider d'événements:",
+          err
+        );
+      }
+    }
+
+    // Priorité 2 : Abonnement réactif sur les blocs minés via ethers.on('block') (sans setInterval)
     try {
       this.provider = new ethers.JsonRpcProvider(this.rpcUrl);
       console.log(`[PolygonRpcTracker] Connecté au RPC Polygon (${this.rpcUrl})`);
 
-      // Écoute des blocs avec polling d'événements
       let lastBlock = await this.provider.getBlockNumber();
 
-      this.pollInterval = setInterval(async () => {
+      this.provider.on("block", async (currentBlock: number) => {
         if (!this.isRunning || !this.provider) return;
         try {
-          const currentBlock = await this.provider.getBlockNumber();
           if (currentBlock <= lastBlock) return;
 
           const logs = await this.provider.getLogs({
@@ -49,7 +76,7 @@ export class PolygonRpcTrackerAdapter implements ITrackerPort {
         } catch (_err: unknown) {
           // Erreur RPC temporaire ignorée
         }
-      }, 3000);
+      });
     } catch (err: unknown) {
       console.warn("[PolygonRpcTracker] Impossible d'initialiser le provider RPC Polygon:", err);
     }
@@ -69,11 +96,22 @@ export class PolygonRpcTrackerAdapter implements ITrackerPort {
 
   async stop(): Promise<void> {
     this.isRunning = false;
-    if (this.pollInterval !== null) {
-      clearInterval(this.pollInterval);
-      this.pollInterval = null;
+    if (this.wsProvider) {
+      try {
+        await this.wsProvider.destroy();
+      } catch (_err: unknown) {
+        // Ignoré
+      }
+      this.wsProvider = null;
     }
-    this.provider = null;
+    if (this.provider) {
+      try {
+        this.provider.removeAllListeners();
+      } catch (_err: unknown) {
+        // Ignoré
+      }
+      this.provider = null;
+    }
     console.log("[PolygonRpcTracker] Arrêt de l'écouteur Polygon RPC");
   }
 

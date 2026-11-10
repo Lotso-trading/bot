@@ -2,6 +2,7 @@ import type { DetectedTrade, TargetTrader } from "@polymarket-copy/shared";
 import { ReplicateTradeUseCase } from "../application/use-cases/replicate-trade.use-case.ts";
 import { type BotRuntimeConfig, loadBotConfig } from "../config/bot.config.ts";
 import { ApiBackendClientAdapter } from "../infrastructure/adapters/api-backend-client.adapter.ts";
+import { ApiWebSocketClientAdapter } from "../infrastructure/adapters/api-websocket-client.adapter.ts";
 import { DiscordWebhookAdapter } from "../infrastructure/adapters/discord-webhook.adapter.ts";
 import { DryRunExecutorAdapter } from "../infrastructure/adapters/dry-run-executor.adapter.ts";
 import { HybridTrackerAdapter } from "../infrastructure/adapters/hybrid-tracker.adapter.ts";
@@ -14,7 +15,7 @@ export class BotRunner {
   private isRunning = false;
   private tracker: HybridTrackerAdapter | null = null;
   private targetMap: Map<string, TargetTrader> = new Map();
-  private refreshTimer: ReturnType<typeof setInterval> | null = null;
+  private wsClient: ApiWebSocketClientAdapter | null = null;
 
   constructor() {
     this.config = loadBotConfig();
@@ -35,6 +36,19 @@ export class BotRunner {
       buyWebhookUrl: this.config.discordBuyWebhookUrl,
       sellWebhookUrl: this.config.discordSellWebhookUrl,
       closedPositionsWebhookUrl: this.config.discordClosedPositionsWebhookUrl,
+    });
+
+    // Connexion WebSocket persistante à l'API pour les événements temps réel & présence
+    this.wsClient = new ApiWebSocketClientAdapter(this.config.apiWsUrl);
+    this.wsClient.connect();
+
+    // Réaction instantanée (0 ms) dès qu'une cible est créée, modifiée ou supprimée
+    this.wsClient.onTargetChange(async () => {
+      console.log("[BotRunner] Notification WebSocket de changement de cibles, mise à jour...");
+      await this.refreshTargets(apiClient);
+      if (this.tracker) {
+        this.tracker.updateTargets(Array.from(this.targetMap.values()));
+      }
     });
 
     // Sélection de l'exécuteur selon le mode configuré
@@ -60,14 +74,14 @@ export class BotRunner {
     );
     const polygonTracker = new PolygonRpcTrackerAdapter(
       this.config.polygonRpcUrl,
-      this.config.ctfExchangeAddress
+      this.config.ctfExchangeAddress,
+      this.config.polygonWsRpcUrl
     );
 
     this.tracker = new HybridTrackerAdapter(apiTracker, polygonTracker);
 
-    // Chargement des cibles depuis l'API et premier heartbeat
+    // Chargement initial des cibles depuis l'API
     await this.refreshTargets(apiClient);
-    await apiClient.sendHeartbeat();
 
     // Callback déclenché à chaque détection de trade
     const onTradeDetected = async (trade: DetectedTrade): Promise<void> => {
@@ -92,16 +106,6 @@ export class BotRunner {
     const initialTargets = Array.from(this.targetMap.values());
     await this.tracker.start(initialTargets, onTradeDetected);
 
-    // Boucle périodique de synchronisation des cibles et heartbeat (toutes les 15 secondes)
-    this.refreshTimer = setInterval(async () => {
-      if (!this.isRunning) return;
-      await apiClient.sendHeartbeat();
-      await this.refreshTargets(apiClient);
-      if (this.tracker) {
-        this.tracker.updateTargets(Array.from(this.targetMap.values()));
-      }
-    }, 15000);
-
     this.setupGracefulShutdown(apiClient);
   }
 
@@ -118,10 +122,12 @@ export class BotRunner {
 
   private setupGracefulShutdown(apiClient: ApiBackendClientAdapter): void {
     const shutdown = async () => {
+      if (!this.isRunning) return;
       console.log("\n[BotRunner] Signal d'arrêt reçu, fermeture propre...");
       this.isRunning = false;
-      if (this.refreshTimer !== null) {
-        clearInterval(this.refreshTimer);
+      if (this.wsClient !== null) {
+        this.wsClient.disconnect();
+        this.wsClient = null;
       }
       try {
         await apiClient.sendShutdown();
