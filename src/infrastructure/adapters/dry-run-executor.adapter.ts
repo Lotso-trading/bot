@@ -9,13 +9,26 @@ export class DryRunExecutorAdapter implements IExecutorPort {
   constructor(
     private readonly clobApiUrl: string,
     initialBalance = 1000.0,
-    private readonly getOpenPositionsCallback?: () => Promise<OpenPosition[]>
+    private readonly getOpenPositionsCallback?: () => Promise<OpenPosition[]>,
+    private readonly getAvailableBalanceCallback?: () => Promise<number | null | undefined>
   ) {
     this.initialBalance = initialBalance;
     this.simulatedBalanceUsdc = initialBalance;
   }
 
   async getAvailableBalanceUsdc(): Promise<number> {
+    if (this.getAvailableBalanceCallback) {
+      try {
+        const bal = await this.getAvailableBalanceCallback();
+        if (typeof bal === "number" && !Number.isNaN(bal) && bal >= 0) {
+          this.simulatedBalanceUsdc = bal;
+          return bal;
+        }
+      } catch (_err: unknown) {
+        // Fallback sur positions ou mémoire
+      }
+    }
+
     if (this.getOpenPositionsCallback) {
       try {
         const positions = await this.getOpenPositionsCallback();

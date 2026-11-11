@@ -13,6 +13,7 @@ import { ReplicateTradeUseCase } from "../src/application/use-cases/replicate-tr
 import type { IApiClientPort } from "../src/domain/ports/api-client.port.ts";
 import type { IExecutorPort } from "../src/domain/ports/executor.port.ts";
 import type { INotifierPort } from "../src/domain/ports/notifier.port.ts";
+import { DryRunExecutorAdapter } from "../src/infrastructure/adapters/dry-run-executor.adapter.ts";
 import { PolymarketClobAdapter } from "../src/infrastructure/adapters/polymarket-clob.adapter.ts";
 import { Deduplicator } from "../src/infrastructure/deduplication/deduplicator.ts";
 
@@ -53,6 +54,7 @@ Deno.test("EvaluateTradeUseCase - valide le slippage et les bornes de cote", () 
     maxPrice: 0.9,
     copySellOrders: true,
     dryRun: true,
+    simulatedBalanceUsdc: 1000.0,
     maxAllocatedCapitalUsdc: 0,
     profitReinvestmentPercent: 50.0,
     isBotRunning: true,
@@ -303,6 +305,7 @@ Deno.test("ReplicateTradeUseCase - calcule le capital effectif et le réinvestis
     maxPrice: 0.9,
     copySellOrders: true,
     dryRun: true,
+    simulatedBalanceUsdc: 1000.0,
     maxAllocatedCapitalUsdc: 100.0, // 100 $ de base alloués
     profitReinvestmentPercent: 50.0, // 50% des bénéfices réinvestis
     isBotRunning: true,
@@ -390,4 +393,22 @@ Deno.test("PolymarketClobAdapter - résout le Token ID ERC1155 plutôt que le co
     contractAddrFallback,
     "0xb62f71aef4c9972ddb75ec977b48156e1cc72e30f0e36b0f12c14de7fd94c777"
   );
+});
+
+Deno.test("DryRunExecutorAdapter - synchronise le solde avec le callback dynamique", async () => {
+  let mockLiveBalance = 1250.0;
+  const adapter = new DryRunExecutorAdapter(
+    "https://clob.polymarket.com",
+    1000.0,
+    undefined,
+    async () => mockLiveBalance
+  );
+
+  const bal1 = await adapter.getAvailableBalanceUsdc();
+  assertEquals(bal1, 1250.0);
+
+  // Simulation d'un dépôt virtuel de 500 $
+  mockLiveBalance = 1750.0;
+  const bal2 = await adapter.getAvailableBalanceUsdc();
+  assertEquals(bal2, 1750.0);
 });

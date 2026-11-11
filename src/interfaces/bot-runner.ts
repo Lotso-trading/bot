@@ -56,7 +56,11 @@ export class BotRunner {
       ? new DryRunExecutorAdapter(
           this.config.polymarketClobApiUrl,
           this.config.defaultSimulatedBalanceUsdc,
-          () => apiClient.getAllOpenPositions()
+          () => apiClient.getAllOpenPositions(),
+          async () => {
+            const m = await apiClient.getMetrics();
+            return m?.availableCashUsdc;
+          }
         )
       : new PolymarketClobAdapter(
           this.config.polymarketClobApiUrl,

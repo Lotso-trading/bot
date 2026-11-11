@@ -55,6 +55,7 @@ export class ApiBackendClientAdapter implements IApiClientPort {
       maxPrice: 0.9,
       copySellOrders: true,
       dryRun: true,
+      simulatedBalanceUsdc: 1000.0,
       maxAllocatedCapitalUsdc: 0,
       profitReinvestmentPercent: 50.0,
       isBotRunning: true,
