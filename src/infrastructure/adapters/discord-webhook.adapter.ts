@@ -139,16 +139,16 @@ export class DiscordWebhookAdapter implements INotifierPort {
               inline: true,
             },
             {
-              name: "Montant Récupéré",
+              name: "Montant Récupéré (Vente Brute)",
               value: `**${trade.costUsdc.toFixed(2)} USDC**`,
               inline: true,
             },
             {
-              name: "Gains Réalisés (PnL)",
+              name: "Gain Net (PnL)",
               value: `**${pnlSign}${pnlUsdc.toFixed(2)} USDC** (${pnlSign}${roiPercent.toFixed(1)}%)`,
               inline: true,
             },
-            { name: "Parts Vendues", value: `${trade.shares.toFixed(1)} parts`, inline: true },
+            { name: "Parts Vendues", value: `${trade.shares.toFixed(2)} parts`, inline: true },
             {
               name: "Prix Moyen d'Entrée",
               value: `${(position?.avgEntryPrice ?? 0).toFixed(3)} USDC`,
