@@ -1,4 +1,5 @@
 import type { DetectedTrade, TargetTrader } from "@polymarket-copy/shared";
+import { AutoRedeemUseCase } from "../application/use-cases/auto-redeem.use-case.ts";
 import { ReplicateTradeUseCase } from "../application/use-cases/replicate-trade.use-case.ts";
 import { type BotRuntimeConfig, loadBotConfig } from "../config/bot.config.ts";
 import { ApiBackendClientAdapter } from "../infrastructure/adapters/api-backend-client.adapter.ts";
@@ -16,6 +17,7 @@ export class BotRunner {
   private tracker: HybridTrackerAdapter | null = null;
   private targetMap: Map<string, TargetTrader> = new Map();
   private wsClient: ApiWebSocketClientAdapter | null = null;
+  private autoRedeemInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.config = loadBotConfig();
@@ -66,10 +68,43 @@ export class BotRunner {
           this.config.polymarketClobApiUrl,
           this.config.polymarketPrivateKey,
           this.config.polymarketSignatureType,
-          this.config.polymarketFunderAddress
+          this.config.polymarketFunderAddress,
+          this.config.polymarketRelayerUrl,
+          this.config.polygonRpcUrl
         );
 
     const replicateUseCase = new ReplicateTradeUseCase(apiClient, executor, notifier);
+    const autoRedeemUseCase = new AutoRedeemUseCase(
+      apiClient,
+      executor,
+      notifier,
+      this.config.dryRun
+    );
+
+    // Réaction instantanée (WebSocket) dès qu'un marché est résolu gagnant -> Auto-Redeem
+    this.wsClient.onPositionClosed(async (data) => {
+      if (data.closeReason === "RESOLVED_WIN") {
+        console.log(
+          `\n[BotRunner] 🏆 Notification temps réel : Marché résolu GAGNANT pour conditionId=${data.conditionId.slice(0, 16)}...`
+        );
+        await autoRedeemUseCase.execute(data.conditionId);
+      }
+    });
+
+    // Boucle de réconciliation périodique (toutes les 60s) : Déclenche le settlement API + rachat des positions en attente
+    const reconcileAutoRedeem = async () => {
+      if (!this.isRunning) return;
+      try {
+        await apiClient.triggerSettlement();
+        await autoRedeemUseCase.redeemAllPending();
+      } catch (err: unknown) {
+        console.warn("[BotRunner] Erreur lors de la réconciliation Auto-Redeem:", err);
+      }
+    };
+
+    // Exécution initiale puis périodique
+    reconcileAutoRedeem();
+    this.autoRedeemInterval = setInterval(reconcileAutoRedeem, 60_000);
 
     // Initialisation des trackers
     const apiTracker = new PolymarketApiTrackerAdapter(
@@ -129,6 +164,10 @@ export class BotRunner {
       if (!this.isRunning) return;
       console.log("\n[BotRunner] Signal d'arrêt reçu, fermeture propre...");
       this.isRunning = false;
+      if (this.autoRedeemInterval !== null) {
+        clearInterval(this.autoRedeemInterval);
+        this.autoRedeemInterval = null;
+      }
       if (this.wsClient !== null) {
         this.wsClient.disconnect();
         this.wsClient = null;

@@ -1,9 +1,10 @@
-import type {
-  DetectedTrade,
-  DiscordWebhookPayload,
-  ExecutedTrade,
-  OpenPosition,
-  TargetTrader,
+import {
+  buildAutoRedeemEmbed,
+  type DetectedTrade,
+  type DiscordWebhookPayload,
+  type ExecutedTrade,
+  type OpenPosition,
+  type TargetTrader,
 } from "@polymarket-copy/shared";
 import type { INotifierPort } from "../../domain/ports/notifier.port.ts";
 
@@ -169,6 +170,18 @@ export class DiscordWebhookAdapter implements INotifierPort {
     };
 
     await this.dispatch(this.sellWebhookUrl, payload);
+  }
+
+  async sendRedeemAlert(
+    position: OpenPosition,
+    txHash: string,
+    isDryRun = false
+  ): Promise<void> {
+    const targetUrl = this.sellWebhookUrl || this.buyWebhookUrl;
+    if (!targetUrl) return;
+
+    const payload = buildAutoRedeemEmbed(position, txHash, isDryRun);
+    await this.dispatch(targetUrl, payload);
   }
 
   async sendRejectionAlert(

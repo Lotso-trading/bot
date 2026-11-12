@@ -135,4 +135,49 @@ export class ApiBackendClientAdapter implements IApiClientPort {
       return trade;
     }
   }
+
+  async getUnredeemedWinningPositions(): Promise<OpenPosition[]> {
+    try {
+      const res = await axios.get<{ success: boolean; data: OpenPosition[] }>(
+        `${this.baseUrl}/api/positions/unredeemed`,
+        { timeout: 5000 }
+      );
+      if (res.data?.success && Array.isArray(res.data.data)) {
+        return res.data.data;
+      }
+      return [];
+    } catch (err: unknown) {
+      console.warn("[ApiClient] Erreur récupération des positions non réclamées:", err);
+      return [];
+    }
+  }
+
+  async recordPositionRedeemed(conditionId: string, txHash: string): Promise<void> {
+    try {
+      await axios.post(
+        `${this.baseUrl}/api/positions/${conditionId}/redeem`,
+        { txHash },
+        { timeout: 5000 }
+      );
+    } catch (err: unknown) {
+      console.warn(
+        `[ApiClient] Erreur notification rachat pour conditionId=${conditionId}:`,
+        err
+      );
+    }
+  }
+
+  async triggerSettlement(): Promise<number> {
+    try {
+      const res = await axios.post<{ success: boolean; data?: { settledCount?: number } }>(
+        `${this.baseUrl}/api/positions/settle`,
+        {},
+        { timeout: 8000 }
+      );
+      return res.data?.data?.settledCount ?? 0;
+    } catch (err: unknown) {
+      console.warn("[ApiClient] Erreur lors du déclenchement du settlement:", err);
+      return 0;
+    }
+  }
 }

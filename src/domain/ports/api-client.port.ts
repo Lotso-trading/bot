@@ -12,6 +12,9 @@ export interface IApiClientPort {
   getAllOpenPositions(): Promise<OpenPosition[]>;
   getMetrics?(): Promise<{ realizedPnlUsdc: number; availableCashUsdc?: number } | null>;
   recordTrade(trade: ExecutedTrade): Promise<ExecutedTrade>;
+  getUnredeemedWinningPositions?(): Promise<OpenPosition[]>;
+  recordPositionRedeemed?(conditionId: string, txHash: string): Promise<void>;
+  triggerSettlement?(): Promise<number>;
   sendHeartbeat(): Promise<void>;
   sendShutdown(): Promise<void>;
 }

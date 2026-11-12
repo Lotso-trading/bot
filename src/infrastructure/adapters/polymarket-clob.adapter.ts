@@ -14,7 +14,9 @@ export class PolymarketClobAdapter implements IExecutorPort {
     private readonly host: string,
     private readonly privateKey: string,
     private readonly signatureType = 0,
-    private readonly funderAddress?: string
+    private readonly funderAddress?: string,
+    private readonly relayerUrl = "https://relayer-v2.polymarket.com",
+    private readonly rpcUrl = "https://polygon-rpc.com"
   ) {}
 
   private async getClient(): Promise<ClobClient> {
@@ -246,7 +248,10 @@ export class PolymarketClobAdapter implements IExecutorPort {
     const redeemer = new PolymarketRedeemerAdapter(
       this.privateKey,
       this.funderAddress,
-      this.signatureType
+      this.signatureType,
+      this.rpcUrl,
+      this.relayerUrl,
+      false
     );
     return await redeemer.redeemWinningPosition(conditionId);
   }

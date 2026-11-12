@@ -7,6 +7,11 @@ interface WsEventMessage {
 
 export type TargetChangeCallback = () => void | Promise<void>;
 export type ConfigChangeCallback = (config: RiskConfig) => void | Promise<void>;
+export type PositionClosedCallback = (data: {
+  conditionId: string;
+  closeReason?: string;
+  settledPayoutUsdc?: number;
+}) => void | Promise<void>;
 
 export class ApiWebSocketClientAdapter {
   private socket: WebSocket | null = null;
@@ -14,6 +19,7 @@ export class ApiWebSocketClientAdapter {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private targetChangeCallbacks: Set<TargetChangeCallback> = new Set();
   private configChangeCallbacks: Set<ConfigChangeCallback> = new Set();
+  private positionClosedCallbacks: Set<PositionClosedCallback> = new Set();
 
   constructor(private readonly wsUrl: string) {}
 
@@ -59,6 +65,15 @@ export class ApiWebSocketClientAdapter {
             for (const cb of this.configChangeCallbacks) {
               await cb(payload.data as RiskConfig);
             }
+          } else if (payload.event === "position:closed" && payload.data) {
+            const data = payload.data as {
+              conditionId: string;
+              closeReason?: string;
+              settledPayoutUsdc?: number;
+            };
+            for (const cb of this.positionClosedCallbacks) {
+              await cb(data);
+            }
           }
         } catch (err: unknown) {
           console.warn("[BotWsClient] Erreur parsing message WebSocket:", err);
@@ -92,6 +107,13 @@ export class ApiWebSocketClientAdapter {
     this.configChangeCallbacks.add(callback);
     return () => {
       this.configChangeCallbacks.delete(callback);
+    };
+  }
+
+  onPositionClosed(callback: PositionClosedCallback): () => void {
+    this.positionClosedCallbacks.add(callback);
+    return () => {
+      this.positionClosedCallbacks.delete(callback);
     };
   }
 
