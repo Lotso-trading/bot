@@ -91,7 +91,8 @@ export class ReplicateTradeUseCase {
         config.balancePercentPerTrade,
         config.maxCapPerTradeUsdc,
         target.weightMultiplier,
-        target.maxUsdcPerTrade
+        target.maxUsdcPerTrade,
+        config.minTradeSizeUsdc ?? 2.0
       );
 
       // Ajustement au plafond marché restant
