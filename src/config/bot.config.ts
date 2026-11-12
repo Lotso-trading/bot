@@ -2,6 +2,7 @@ export interface BotRuntimeConfig {
   readonly polymarketPrivateKey: string;
   readonly polymarketFunderAddress?: string;
   readonly polymarketSignatureType: number;
+  readonly polymarketRelayerUrl: string;
   readonly polymarketClobApiUrl: string;
   readonly polymarketDataApiUrl: string;
   readonly polygonRpcUrl: string;
@@ -24,6 +25,8 @@ export function loadBotConfig(): BotRuntimeConfig {
     polymarketPrivateKey: Deno.env.get("POLYMARKET_PRIVATE_KEY") || "",
     polymarketFunderAddress: Deno.env.get("POLYMARKET_FUNDER_ADDRESS") || undefined,
     polymarketSignatureType: Number(Deno.env.get("POLYMARKET_SIGNATURE_TYPE")) || 0,
+    polymarketRelayerUrl:
+      Deno.env.get("POLYMARKET_RELAYER_URL") || "https://relayer-v2.polymarket.com",
     polymarketClobApiUrl: Deno.env.get("POLYMARKET_CLOB_API_URL") || "https://clob.polymarket.com",
     polymarketDataApiUrl:
       Deno.env.get("POLYMARKET_DATA_API_URL") || "https://data-api.polymarket.com",

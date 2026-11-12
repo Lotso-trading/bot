@@ -39,6 +39,19 @@ Deno.test("CalculatePositionSizeUseCase - calcule le pourcentage exact du solde"
   // Multiplicateur de baleine (poids 1.5x)
   const size5 = sizer.calculate(1000.0, 0.03, 100.0, 1.5); // 30 * 1.5 = 45 $
   assertEquals(size5, 45.0);
+
+  // Plancher dynamique pour capital de 50 USDC :
+  // Avec 50 $ et 8%, 50 * 0.08 = 4.00 $
+  const size6 = sizer.calculate(50.0, 0.08, 50.0, 1.0, undefined, 2.0);
+  assertEquals(size6, 4.0);
+
+  // Avec solde diminué à 15 $ et 8% (1.20 $ < plancher 2.00 $), le plancher à 2.00 $ s'applique
+  const size7 = sizer.calculate(15.0, 0.08, 50.0, 1.0, undefined, 2.0);
+  assertEquals(size7, 2.0);
+
+  // Avec solde très bas (0.80 $ < 1.00 $ Polymarket min) -> rejet
+  const size8 = sizer.calculate(0.8, 0.08, 50.0, 1.0, undefined, 2.0);
+  assertEquals(size8, 0);
 });
 
 Deno.test("EvaluateTradeUseCase - valide le slippage et les bornes de cote", () => {

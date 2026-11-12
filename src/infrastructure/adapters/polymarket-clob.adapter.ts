@@ -4,6 +4,7 @@ import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { polygon } from "viem/chains";
 import type { IExecutorPort } from "../../domain/ports/executor.port.ts";
+import { PolymarketRedeemerAdapter } from "./polymarket-redeemer.adapter.ts";
 
 export class PolymarketClobAdapter implements IExecutorPort {
   private client: ClobClient | null = null;
@@ -239,5 +240,14 @@ export class PolymarketClobAdapter implements IExecutorPort {
       isDryRun: false,
       executedAt: Date.now(),
     };
+  }
+
+  async redeemWinningPosition(conditionId: string): Promise<string> {
+    const redeemer = new PolymarketRedeemerAdapter(
+      this.privateKey,
+      this.funderAddress,
+      this.signatureType
+    );
+    return await redeemer.redeemWinningPosition(conditionId);
   }
 }

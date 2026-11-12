@@ -10,4 +10,5 @@ export interface IExecutorPort {
   ): Promise<ExecutedTrade>;
   getAvailableBalanceUsdc(): Promise<number>;
   getCurrentBestPrice(conditionId: string, side: "BUY" | "SELL"): Promise<number | null>;
+  redeemWinningPosition?(conditionId: string): Promise<string>;
 }

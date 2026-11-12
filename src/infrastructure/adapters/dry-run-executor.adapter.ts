@@ -117,4 +117,8 @@ export class DryRunExecutorAdapter implements IExecutorPort {
       executedAt: Date.now(),
     };
   }
+
+  async redeemWinningPosition(conditionId: string): Promise<string> {
+    return `sim_tx_redeem_${Date.now()}_${conditionId.slice(0, 10)}`;
+  }
 }

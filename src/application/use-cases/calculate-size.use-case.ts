@@ -5,7 +5,7 @@ export class CalculatePositionSizeUseCase {
     maxCapUsdc: number,
     weightMultiplier = 1.0,
     targetMaxCap?: number,
-    minTradeSizeUsdc = 2.0
+    minTradeSizeUsdc?: number
   ): number {
     if (availableBalanceUsdc <= 0 || balancePercent <= 0) {
       return 0;
@@ -15,11 +15,10 @@ export class CalculatePositionSizeUseCase {
     let targetAllocation = availableBalanceUsdc * balancePercent * effectiveWeight;
 
     // Plancher dynamique pour petits portefeuilles (ex: 50 USDC)
-    // Permet d'éviter le rejet prématuré dès que l'allocation calculée descend sous le plancher
-    if (targetAllocation < minTradeSizeUsdc && availableBalanceUsdc >= minTradeSizeUsdc) {
-      targetAllocation = minTradeSizeUsdc;
-    } else if (targetAllocation < minTradeSizeUsdc && availableBalanceUsdc < minTradeSizeUsdc) {
-      targetAllocation = availableBalanceUsdc;
+    if (minTradeSizeUsdc !== undefined && minTradeSizeUsdc > 0) {
+      if (targetAllocation < minTradeSizeUsdc && availableBalanceUsdc >= minTradeSizeUsdc) {
+        targetAllocation = minTradeSizeUsdc;
+      }
     }
 
     let finalAmount = Math.min(targetAllocation, maxCapUsdc);
