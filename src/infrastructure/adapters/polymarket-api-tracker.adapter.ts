@@ -93,9 +93,21 @@ export class PolymarketApiTrackerAdapter implements ITrackerPort {
         const marketSlug = raw.slug || raw.market?.slug || "polymarket-market";
         const marketQuestion = raw.title || raw.market?.question || "Question inconnue";
         const conditionId =
-          raw.condition_id || raw.conditionId || raw.asset || raw.token_id || target.address;
+          raw.condition_id ||
+          raw.conditionId ||
+          raw.market?.condition_id ||
+          raw.market?.conditionId ||
+          raw.asset ||
+          raw.token_id ||
+          target.address;
         const txHash = raw.transaction_hash || raw.transactionHash;
-        const endDate = raw.endDate || raw.end_date_iso || raw.game_start_time;
+        const endDate =
+          raw.endDate ||
+          raw.end_date_iso ||
+          raw.game_start_time ||
+          raw.market?.endDate ||
+          raw.market?.end_date_iso ||
+          raw.market?.game_start_time;
 
         const detected: DetectedTrade = {
           id: `det_${raw.id || txHash || `${address}_${timestampMs}`}`,
