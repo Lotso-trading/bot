@@ -172,11 +172,7 @@ export class DiscordWebhookAdapter implements INotifierPort {
     await this.dispatch(this.sellWebhookUrl, payload);
   }
 
-  async sendRedeemAlert(
-    position: OpenPosition,
-    txHash: string,
-    isDryRun = false
-  ): Promise<void> {
+  async sendRedeemAlert(position: OpenPosition, txHash: string, isDryRun = false): Promise<void> {
     const targetUrl = this.sellWebhookUrl || this.buyWebhookUrl;
     if (!targetUrl) return;
 

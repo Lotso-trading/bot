@@ -298,6 +298,7 @@ Deno.test("ReplicateTradeUseCase - calcule le capital effectif et le réinvestis
     getMetrics: async () => ({
       realizedPnlUsdc: 50.0, // 50 $ de gains réalisés
       availableCashUsdc: 550.0,
+      initialCapitalUsdc: 100.0,
     }),
   };
 
@@ -347,6 +348,16 @@ Deno.test("ReplicateTradeUseCase - calcule le capital effectif et le réinvestis
   const res100 = await useCase.calculateEffectiveBalance(550.0, config100Percent, []);
   assertEquals(res100.maxBotBudget, 150.0);
   assertEquals(res100.effectiveBalance, 150.0);
+
+  // Scénario 3b : maxAllocatedCapitalUsdc = 0 avec 50% de réinvestissement -> prend initialCapitalUsdc (100 $) en base
+  const configZeroAllocated: RiskConfig = {
+    ...baseConfig,
+    maxAllocatedCapitalUsdc: 0,
+    profitReinvestmentPercent: 50.0,
+  };
+  const resZeroAllocated = await useCase.calculateEffectiveBalance(550.0, configZeroAllocated, []);
+  assertEquals(resZeroAllocated.maxBotBudget, 125.0); // 100 $ initial + (50 * 50%) = 125 $
+  assertEquals(resZeroAllocated.effectiveBalance, 125.0);
 
   // Scénario 4 : Déjà 122 $ investis sur un budget de 125 $ -> reste 3 $ <= réserve (5 $)
   const positions = [

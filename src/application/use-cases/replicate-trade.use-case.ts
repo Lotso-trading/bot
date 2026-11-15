@@ -42,10 +42,10 @@ export class ReplicateTradeUseCase {
         await this.calculateEffectiveBalance(rawWalletBalance, config, allPositions);
 
       if (effectiveBalance <= minReserve) {
-        const reason =
-          config.maxAllocatedCapitalUsdc > 0 && isAllocatedLimitHit
-            ? `SOLDE_INSUFFISANT : Capital alloué au bot atteint (Budget restant: ${botRemainingCash.toFixed(2)} USDC <= Réserve: ${minReserve.toFixed(2)} USDC, Plafond max: ${maxBotBudget.toFixed(2)} USDC)`
-            : `SOLDE_INSUFFISANT : Portefeuille vide (Cash disponible: ${effectiveBalance.toFixed(2)} USDC <= Réserve min: ${minReserve.toFixed(2)} USDC)`;
+        const isSanctuarizedBudgetHit = isAllocatedLimitHit && botRemainingCash < minReserve;
+        const reason = isSanctuarizedBudgetHit
+          ? `SOLDE_INSUFFISANT : Capital alloué au bot atteint (Budget restant: ${botRemainingCash.toFixed(2)} USDC <= Réserve: ${minReserve.toFixed(2)} USDC, Plafond max: ${maxBotBudget.toFixed(2)} USDC)`
+          : `SOLDE_INSUFFISANT : Portefeuille vide (Cash disponible: ${effectiveBalance.toFixed(2)} USDC <= Réserve min: ${minReserve.toFixed(2)} USDC)`;
         await this.handleRejection(trade, target, reason);
         return null;
       }
@@ -175,7 +175,20 @@ export class ReplicateTradeUseCase {
     maxBotBudget: number;
     botRemainingCash: number;
   }> {
-    if (!config.maxAllocatedCapitalUsdc || config.maxAllocatedCapitalUsdc <= 0) {
+    const metrics = (await this.apiClient.getMetrics?.()) ?? null;
+    const baseCapital =
+      config.maxAllocatedCapitalUsdc && config.maxAllocatedCapitalUsdc > 0
+        ? config.maxAllocatedCapitalUsdc
+        : (metrics?.initialCapitalUsdc ?? config.simulatedBalanceUsdc ?? 0);
+
+    const reinvestPercent = config.profitReinvestmentPercent ?? 50.0;
+    const reinvestRate = reinvestPercent / 100;
+
+    // Si réinvestissement à 100% et aucun plafond de capital explicite, le bot peut utiliser tout le solde
+    if (
+      reinvestPercent >= 100 &&
+      (!config.maxAllocatedCapitalUsdc || config.maxAllocatedCapitalUsdc <= 0)
+    ) {
       return {
         effectiveBalance: rawWalletBalance,
         isAllocatedLimitHit: false,
@@ -184,11 +197,19 @@ export class ReplicateTradeUseCase {
       };
     }
 
-    const metrics = (await this.apiClient.getMetrics?.()) ?? null;
+    // Si aucun capital de base n'est identifiable, fallback sur le solde brut
+    if (baseCapital <= 0) {
+      return {
+        effectiveBalance: rawWalletBalance,
+        isAllocatedLimitHit: false,
+        maxBotBudget: rawWalletBalance,
+        botRemainingCash: rawWalletBalance,
+      };
+    }
+
     const realizedPnl = metrics?.realizedPnlUsdc ?? 0;
-    const reinvestRate = (config.profitReinvestmentPercent ?? 50.0) / 100;
     const allowedGains = realizedPnl > 0 ? realizedPnl * reinvestRate : realizedPnl;
-    const maxBotBudget = Math.max(0, config.maxAllocatedCapitalUsdc + allowedGains);
+    const maxBotBudget = Math.max(0, baseCapital + allowedGains);
 
     const totalInvested = allPositions.reduce((sum, p) => sum + (p.totalInvestedUsdc || 0), 0);
     const botRemainingCash = Math.max(0, maxBotBudget - totalInvested);

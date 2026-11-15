@@ -1,4 +1,3 @@
-import type { OpenPosition } from "@polymarket-copy/shared";
 import type { IApiClientPort } from "../../domain/ports/api-client.port.ts";
 import type { IExecutorPort } from "../../domain/ports/executor.port.ts";
 import type { INotifierPort } from "../../domain/ports/notifier.port.ts";

@@ -104,11 +104,21 @@ export class ApiBackendClientAdapter implements IApiClientPort {
     return positions.find((p) => p.conditionId === conditionId) || null;
   }
 
-  async getMetrics(): Promise<{ realizedPnlUsdc: number; availableCashUsdc?: number } | null> {
+  async getMetrics(): Promise<{
+    realizedPnlUsdc: number;
+    availableCashUsdc?: number;
+    initialCapitalUsdc?: number;
+    totalSettledPayoutUsdc?: number;
+  } | null> {
     try {
       const res = await axios.get<{
         success: boolean;
-        data?: { realizedPnlUsdc: number; availableCashUsdc?: number };
+        data?: {
+          realizedPnlUsdc: number;
+          availableCashUsdc?: number;
+          initialCapitalUsdc?: number;
+          totalSettledPayoutUsdc?: number;
+        };
       }>(`${this.baseUrl}/api/metrics`, { timeout: 5000 });
       if (res.data?.success && res.data.data) {
         return res.data.data;
@@ -160,10 +170,7 @@ export class ApiBackendClientAdapter implements IApiClientPort {
         { timeout: 5000 }
       );
     } catch (err: unknown) {
-      console.warn(
-        `[ApiClient] Erreur notification rachat pour conditionId=${conditionId}:`,
-        err
-      );
+      console.warn(`[ApiClient] Erreur notification rachat pour conditionId=${conditionId}:`, err);
     }
   }
 

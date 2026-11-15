@@ -129,10 +129,7 @@ Deno.test("AutoRedeemUseCase - redeemAllPending réclame toutes les positions no
     getOpenPosition: (condId: string) => Promise.resolve(createMockPosition(condId)),
     getAllOpenPositions: () => Promise.resolve([]),
     getUnredeemedWinningPositions: () =>
-      Promise.resolve([
-        createMockPosition("0xpos_alpha"),
-        createMockPosition("0xpos_beta"),
-      ]),
+      Promise.resolve([createMockPosition("0xpos_alpha"), createMockPosition("0xpos_beta")]),
     recordPositionRedeemed: (condId: string) => {
       redeemedSet.add(condId);
       return Promise.resolve();
