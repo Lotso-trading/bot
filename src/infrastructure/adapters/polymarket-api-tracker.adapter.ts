@@ -91,6 +91,12 @@ export class PolymarketApiTrackerAdapter implements ITrackerPort {
         if (timestampMs <= this.lastCheckedTimestamp) continue;
 
         const marketSlug = raw.slug || raw.market?.slug || "polymarket-market";
+        const eventSlug =
+          raw.event_slug ||
+          raw.eventSlug ||
+          raw.market?.event_slug ||
+          raw.market?.eventSlug ||
+          undefined;
         const marketQuestion = raw.title || raw.market?.question || "Question inconnue";
         const conditionId =
           raw.condition_id ||
@@ -113,6 +119,7 @@ export class PolymarketApiTrackerAdapter implements ITrackerPort {
           id: `det_${raw.id || txHash || `${address}_${timestampMs}`}`,
           targetAddress: target.address,
           marketSlug,
+          eventSlug,
           marketQuestion,
           conditionId,
           endDate,

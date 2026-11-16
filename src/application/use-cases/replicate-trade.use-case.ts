@@ -236,6 +236,7 @@ export class ReplicateTradeUseCase {
       targetAddress: target.address,
       conditionId: trade.conditionId,
       marketSlug: trade.marketSlug,
+      eventSlug: trade.eventSlug,
       marketQuestion: trade.marketQuestion,
       outcomeLabel: trade.outcomeLabel,
       side: trade.side,
