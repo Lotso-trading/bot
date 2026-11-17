@@ -1,13 +1,14 @@
-import type { DetectedTrade, ExecutedTrade, OpenPosition } from "@polymarket-copy/shared";
+import type { DetectedTrade, ExecutedTrade, OpenPosition } from "@lotso-trading/shared";
 
 export interface IExecutorPort {
-  executeBuy(trade: DetectedTrade, sizeUsdc: number): Promise<ExecutedTrade>;
-  executeSell(
-    position: OpenPosition,
-    sharesToSell: number,
-    marketPrice: number,
-    targetAddress: string
-  ): Promise<ExecutedTrade>;
-  getAvailableBalanceUsdc(): Promise<number>;
-  getCurrentBestPrice(conditionId: string, side: "BUY" | "SELL"): Promise<number | null>;
+    executeBuy(trade: DetectedTrade, sizeUsdc: number): Promise<ExecutedTrade>;
+    executeSell(
+        position: OpenPosition,
+        sharesToSell: number,
+        marketPrice: number,
+        targetAddress: string
+    ): Promise<ExecutedTrade>;
+    getAvailableBalanceUsdc(): Promise<number>;
+    getCurrentBestPrice(conditionId: string, side: "BUY" | "SELL"): Promise<number | null>;
+    redeemWinningPosition?(conditionId: string): Promise<string>;
 }
