@@ -36,12 +36,12 @@ jobs:
           path: repo/packages/shared
           ref: ${{ github.ref_name == 'main' && 'main' || 'develop' }}
 
-      - name: Setup Node.js (GitHub Packages Auth)
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          registry-url: "https://npm.pkg.github.com"
-          scope: "@lotso-trading"
+      - name: Configure GitHub Packages Authentication
+        run: |
+          TOKEN="${{ secrets.GH_TOKEN || secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}"
+          echo "@lotso-trading:registry=https://npm.pkg.github.com/" > ~/.npmrc
+          echo "//npm.pkg.github.com/:_authToken=${TOKEN}" >> ~/.npmrc
+          echo "//npm.pkg.github.com/:_authToken=${TOKEN}" >> repo/services/bot/.npmrc
 
       - name: Setup Deno
         uses: denoland/setup-deno@v2
