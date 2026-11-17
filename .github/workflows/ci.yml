@@ -1,4 +1,4 @@
-name: CI - Bot Service
+name: CI / CD - Bot Service
 
 on:
   push:
@@ -10,6 +10,11 @@ on:
       - develop
       - main
 
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
 jobs:
   validate-and-test:
     name: Lint, Type-Check & Unit Tests
@@ -19,6 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: repo/services/bot
+          fetch-depth: 0
 
       - name: Checkout Shared Contracts
         uses: actions/checkout@v4
@@ -47,3 +53,46 @@ jobs:
       - name: Validate Deno Cache & Dependencies
         working-directory: repo/services/bot
         run: deno cache src/main.ts
+
+  release:
+    name: Release & Changelog
+    needs: validate-and-test
+    if: github.event_name == 'push' && (github.ref_name == 'main' || github.ref_name == 'develop')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Bot Service
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # 1. Branche develop : Pre-release avec tous les détails des commits
+      - name: Develop Pre-Release
+        if: github.ref_name == 'develop'
+        run: |
+          VERSION=$(node -e 'const j=require("./deno.json"); console.log(j.version || "1.0.0")')
+          BUILD=$(node -e 'const j=require("./deno.json"); console.log(j.build || "1")')
+          TAG="v${VERSION}-develop.${BUILD}"
+          echo "📦 Creating Develop Pre-Release: $TAG"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --generate-notes \
+            --prerelease || echo "Release $TAG already exists, skipping."
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 2. Branche main : Semantic-Release officiel
+      - name: Semantic Release on Main
+        if: github.ref_name == 'main'
+        run: |
+          npx --yes \
+            -p semantic-release@^24.2.0 \
+            -p @semantic-release/github@^11.0.0 \
+            -p conventional-changelog-conventionalcommits@^8.0.0 \
+            semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
