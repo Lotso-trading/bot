@@ -3,7 +3,7 @@
     "version": "1.0.0",
     "exports": "./src/main.ts",
     "imports": {
-        "@lotso-trading/shared": "npm:@lotso-trading/shared@1.0.0-develop.4",
+        "@lotso-trading/shared": "npm:@lotso-trading/shared@1.0.0",
         "@polymarket/clob-client": "npm:@polymarket/clob-client@^5.8.1",
         "ethers": "npm:ethers@^6.17.0",
         "viem": "npm:viem@^2.58.0",
