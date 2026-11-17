@@ -21,6 +21,9 @@
     "dev": "deno run -A --watch src/main.ts",
     "start": "deno run -A src/main.ts",
     "test": "deno test -A tests/",
-    "test-clob": "deno run -A --env src/scripts/test-clob-connection.ts"
+    "test-clob": "deno run -A --env src/scripts/test-clob-connection.ts",
+    "lint": "deno run -A npm:@biomejs/biome check .",
+    "format": "deno run -A npm:@biomejs/biome format --write .",
+    "check": "deno check src/main.ts"
   }
 }

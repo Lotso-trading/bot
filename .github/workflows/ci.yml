@@ -1,0 +1,49 @@
+name: CI - Bot Service
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+  pull_request:
+    branches:
+      - develop
+      - main
+
+jobs:
+  validate-and-test:
+    name: Lint, Type-Check & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Bot Service
+        uses: actions/checkout@v4
+        with:
+          path: repo/services/bot
+
+      - name: Checkout Shared Contracts
+        uses: actions/checkout@v4
+        with:
+          repository: Lotso-trading/shared
+          path: repo/packages/shared
+          ref: ${{ github.ref_name == 'main' && 'main' || 'develop' }}
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Lint (Biome)
+        working-directory: repo/services/bot
+        run: deno task lint
+
+      - name: Type-Check (deno check)
+        working-directory: repo/services/bot
+        run: deno task check
+
+      - name: Run Unit Tests
+        working-directory: repo/services/bot
+        run: deno task test
+
+      - name: Validate Deno Cache & Dependencies
+        working-directory: repo/services/bot
+        run: deno cache src/main.ts
