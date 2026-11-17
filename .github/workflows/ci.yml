@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  packages: read
   issues: write
   pull-requests: write
 
@@ -19,6 +20,8 @@ jobs:
   validate-and-test:
     name: Lint, Type-Check & Unit Tests
     runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout Bot Service
         uses: actions/checkout@v4
@@ -33,10 +36,21 @@ jobs:
           path: repo/packages/shared
           ref: ${{ github.ref_name == 'main' && 'main' || 'develop' }}
 
+      - name: Setup Node.js (GitHub Packages Auth)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@lotso-trading"
+
       - name: Setup Deno
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
+
+      - name: Pre-cache & Install Dependencies
+        working-directory: repo/services/bot
+        run: deno install --min-dep-age=0
 
       - name: Lint (Biome)
         working-directory: repo/services/bot
