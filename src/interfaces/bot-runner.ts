@@ -1,6 +1,7 @@
 import type { DetectedTrade, TargetTrader } from "@lotso-trading/shared";
 import { AutoRedeemUseCase } from "../application/use-cases/auto-redeem.use-case.ts";
 import { ReplicateTradeUseCase } from "../application/use-cases/replicate-trade.use-case.ts";
+import { SettlePositionsUseCase } from "../application/use-cases/settle-positions.use-case.ts";
 import { type BotRuntimeConfig, loadBotConfig } from "../config/bot.config.ts";
 import { ApiBackendClientAdapter } from "../infrastructure/adapters/api-backend-client.adapter.ts";
 import { ApiWebSocketClientAdapter } from "../infrastructure/adapters/api-websocket-client.adapter.ts";
@@ -10,6 +11,19 @@ import { HybridTrackerAdapter } from "../infrastructure/adapters/hybrid-tracker.
 import { PolygonRpcTrackerAdapter } from "../infrastructure/adapters/polygon-rpc-tracker.adapter.ts";
 import { PolymarketApiTrackerAdapter } from "../infrastructure/adapters/polymarket-api-tracker.adapter.ts";
 import { PolymarketClobAdapter } from "../infrastructure/adapters/polymarket-clob.adapter.ts";
+
+function readBotVersion(): string {
+    const envVersion = Deno.env.get("BOT_VERSION");
+    if (envVersion) return envVersion;
+    try {
+        const denoJsonUrl = new URL("../../deno.json", import.meta.url);
+        const parsed = JSON.parse(Deno.readTextFileSync(denoJsonUrl)) as { version?: string };
+        if (parsed.version) return parsed.version;
+    } catch {
+        // Fallback par défaut
+    }
+    return "1.0.0";
+}
 
 export class BotRunner {
     private config: BotRuntimeConfig;
@@ -33,7 +47,9 @@ export class BotRunner {
 
         this.isRunning = true;
 
+        const botVersion = readBotVersion();
         const apiClient = new ApiBackendClientAdapter(this.config.apiInternalUrl);
+        await apiClient.sendHeartbeat(botVersion);
         const notifier = new DiscordWebhookAdapter({
             buyWebhookUrl: this.config.discordBuyWebhookUrl,
             sellWebhookUrl: this.config.discordSellWebhookUrl,
@@ -41,7 +57,7 @@ export class BotRunner {
         });
 
         // Connexion WebSocket persistante à l'API pour les événements temps réel & présence
-        this.wsClient = new ApiWebSocketClientAdapter(this.config.apiWsUrl);
+        this.wsClient = new ApiWebSocketClientAdapter(this.config.apiWsUrl, botVersion);
         this.wsClient.connect();
 
         // Réaction instantanée (0 ms) dès qu'une cible est créée, modifiée ou supprimée
@@ -82,27 +98,39 @@ export class BotRunner {
             notifier,
             this.config.dryRun
         );
+        const settlePositionsUseCase = new SettlePositionsUseCase(
+            apiClient,
+            this.config.polymarketClobApiUrl
+        );
 
         // Réaction instantanée (WebSocket) dès qu'un marché est résolu gagnant -> Auto-Redeem
         this.wsClient.onPositionClosed(async (data) => {
             if (data.closeReason === "RESOLVED_WIN") {
                 console.log(
-                    `\n[BotRunner] 🏆 Notification temps réel : Marché résolu GAGNANT pour conditionId=${data.conditionId.slice(0, 16)}...`
+                    `\n[BotRunner] Notification temps réel : Marché résolu GAGNANT pour conditionId=${data.conditionId.slice(0, 16)}...`
                 );
                 await autoRedeemUseCase.execute(data.conditionId);
             }
         });
 
-        // Boucle de réconciliation périodique (toutes les 60s) : Déclenche le settlement API + rachat des positions en attente
+        // Boucle de réconciliation périodique (toutes les 60s) & sur commande WS dashboard :
+        // Le Bot vérifie lui-même les marchés résolus sur Polymarket puis persiste via l'API et rachète les gains.
         const reconcileAutoRedeem = async () => {
             if (!this.isRunning) return;
             try {
-                await apiClient.triggerSettlement();
+                const { wonConditionIds } = await settlePositionsUseCase.execute();
+                for (const condId of wonConditionIds) {
+                    await autoRedeemUseCase.execute(condId);
+                }
                 await autoRedeemUseCase.redeemAllPending();
             } catch (err: unknown) {
                 console.warn("[BotRunner] Erreur lors de la réconciliation Auto-Redeem:", err);
             }
         };
+
+        this.wsClient.onCheckResolutionsRequested(async () => {
+            await reconcileAutoRedeem();
+        });
 
         // Exécution initiale puis périodique
         reconcileAutoRedeem();

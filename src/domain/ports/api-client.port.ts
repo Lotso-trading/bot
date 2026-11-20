@@ -1,4 +1,10 @@
-import type { ExecutedTrade, OpenPosition, RiskConfig, TargetTrader } from "@lotso-trading/shared";
+import type {
+    ClosePositionInput,
+    ExecutedTrade,
+    OpenPosition,
+    RiskConfig,
+    TargetTrader,
+} from "@lotso-trading/shared";
 
 export interface IApiClientPort {
     getActiveTargets(): Promise<TargetTrader[]>;
@@ -14,7 +20,7 @@ export interface IApiClientPort {
     recordTrade(trade: ExecutedTrade): Promise<ExecutedTrade>;
     getUnredeemedWinningPositions?(): Promise<OpenPosition[]>;
     recordPositionRedeemed?(conditionId: string, txHash: string): Promise<void>;
-    triggerSettlement?(): Promise<number>;
-    sendHeartbeat(): Promise<void>;
+    closePosition?(conditionId: string, payload: ClosePositionInput): Promise<OpenPosition | null>;
+    sendHeartbeat(version?: string): Promise<void>;
     sendShutdown(): Promise<void>;
 }

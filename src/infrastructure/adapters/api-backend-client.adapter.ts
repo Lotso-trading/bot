@@ -1,4 +1,10 @@
-import type { ExecutedTrade, OpenPosition, RiskConfig, TargetTrader } from "@lotso-trading/shared";
+import type {
+    ClosePositionInput,
+    ExecutedTrade,
+    OpenPosition,
+    RiskConfig,
+    TargetTrader,
+} from "@lotso-trading/shared";
 import axios from "axios";
 import type { IApiClientPort } from "../../domain/ports/api-client.port.ts";
 
@@ -58,9 +64,11 @@ export class ApiBackendClientAdapter implements IApiClientPort {
         };
     }
 
-    async sendHeartbeat(): Promise<void> {
+    async sendHeartbeat(version?: string): Promise<void> {
         try {
-            await axios.post(`${this.baseUrl}/api/config/heartbeat`, {}, { timeout: 3000 });
+            await axios.post(`${this.baseUrl}/api/config/heartbeat`, version ? { version } : {}, {
+                timeout: 3000,
+            });
         } catch (_err: unknown) {
             // Ignoré si l'API est temporairement indisponible
         }
@@ -172,17 +180,23 @@ export class ApiBackendClientAdapter implements IApiClientPort {
         }
     }
 
-    async triggerSettlement(): Promise<number> {
+    async closePosition(
+        conditionId: string,
+        payload: ClosePositionInput
+    ): Promise<OpenPosition | null> {
         try {
-            const res = await axios.post<{ success: boolean; data?: { settledCount?: number } }>(
-                `${this.baseUrl}/api/positions/settle`,
-                {},
+            const res = await axios.post<{ success: boolean; data?: OpenPosition | null }>(
+                `${this.baseUrl}/api/positions/${conditionId}/close`,
+                payload,
                 { timeout: 8000 }
             );
-            return res.data?.data?.settledCount ?? 0;
+            return res.data?.data ?? null;
         } catch (err: unknown) {
-            console.warn("[ApiClient] Erreur lors du déclenchement du settlement:", err);
-            return 0;
+            console.warn(
+                `[ApiClient] Erreur lors de la clôture de position conditionId=${conditionId}:`,
+                err
+            );
+            return null;
         }
     }
 }

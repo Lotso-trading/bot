@@ -12,6 +12,7 @@ export type PositionClosedCallback = (data: {
     closeReason?: string;
     settledPayoutUsdc?: number;
 }) => void | Promise<void>;
+export type CheckResolutionsCallback = () => void | Promise<void>;
 
 export class ApiWebSocketClientAdapter {
     private socket: WebSocket | null = null;
@@ -20,8 +21,12 @@ export class ApiWebSocketClientAdapter {
     private targetChangeCallbacks: Set<TargetChangeCallback> = new Set();
     private configChangeCallbacks: Set<ConfigChangeCallback> = new Set();
     private positionClosedCallbacks: Set<PositionClosedCallback> = new Set();
+    private checkResolutionsCallbacks: Set<CheckResolutionsCallback> = new Set();
 
-    constructor(private readonly wsUrl: string) {}
+    constructor(
+        private readonly wsUrl: string,
+        private readonly botVersion?: string
+    ) {}
 
     connect(): void {
         this.isRunning = true;
@@ -32,18 +37,26 @@ export class ApiWebSocketClientAdapter {
         if (!this.isRunning) return;
 
         try {
-            // Connexion avec identification role=bot
+            // Connexion avec identification role=bot & version
+            const versionParam = this.botVersion
+                ? `&version=${encodeURIComponent(this.botVersion)}`
+                : "";
             const url = this.wsUrl.includes("?")
-                ? `${this.wsUrl}&role=bot`
-                : `${this.wsUrl}?role=bot`;
+                ? `${this.wsUrl}&role=bot${versionParam}`
+                : `${this.wsUrl}?role=bot${versionParam}`;
 
             this.socket = new WebSocket(url);
 
             this.socket.onopen = () => {
                 console.log(`[BotWsClient] Connecté au flux temps réel de l'API (${url})`);
-                // Identification explicite par message
                 try {
-                    this.socket?.send(JSON.stringify({ event: "bot:identify", role: "bot" }));
+                    this.socket?.send(
+                        JSON.stringify({
+                            event: "bot:identify",
+                            role: "bot",
+                            version: this.botVersion,
+                        })
+                    );
                 } catch (_err: unknown) {
                     // Ignoré
                 }
@@ -75,6 +88,13 @@ export class ApiWebSocketClientAdapter {
                         };
                         for (const cb of this.positionClosedCallbacks) {
                             await cb(data);
+                        }
+                    } else if (payload.event === "bot:check-resolutions") {
+                        console.log(
+                            "[BotWsClient] Demande manuelle de vérification des résolutions reçue"
+                        );
+                        for (const cb of this.checkResolutionsCallbacks) {
+                            await cb();
                         }
                     }
                 } catch (err: unknown) {
@@ -118,6 +138,13 @@ export class ApiWebSocketClientAdapter {
         this.positionClosedCallbacks.add(callback);
         return () => {
             this.positionClosedCallbacks.delete(callback);
+        };
+    }
+
+    onCheckResolutionsRequested(callback: CheckResolutionsCallback): () => void {
+        this.checkResolutionsCallbacks.add(callback);
+        return () => {
+            this.checkResolutionsCallbacks.delete(callback);
         };
     }
 
