@@ -5,6 +5,7 @@ interface WsEventMessage {
     data?: unknown;
 }
 
+export type ConnectCallback = () => void | Promise<void>;
 export type TargetChangeCallback = () => void | Promise<void>;
 export type ConfigChangeCallback = (config: RiskConfig) => void | Promise<void>;
 export type PositionClosedCallback = (data: {
@@ -18,6 +19,7 @@ export class ApiWebSocketClientAdapter {
     private socket: WebSocket | null = null;
     private isRunning = false;
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    private connectCallbacks: Set<ConnectCallback> = new Set();
     private targetChangeCallbacks: Set<TargetChangeCallback> = new Set();
     private configChangeCallbacks: Set<ConfigChangeCallback> = new Set();
     private positionClosedCallbacks: Set<PositionClosedCallback> = new Set();
@@ -59,6 +61,11 @@ export class ApiWebSocketClientAdapter {
                     );
                 } catch (_err: unknown) {
                     // Ignoré
+                }
+                for (const cb of this.connectCallbacks) {
+                    Promise.resolve(cb()).catch((err: unknown) => {
+                        console.warn("[BotWsClient] Erreur callback onConnect:", err);
+                    });
                 }
             };
 
@@ -118,6 +125,13 @@ export class ApiWebSocketClientAdapter {
         } catch (_err: unknown) {
             this.scheduleReconnect();
         }
+    }
+
+    onConnect(callback: ConnectCallback): () => void {
+        this.connectCallbacks.add(callback);
+        return () => {
+            this.connectCallbacks.delete(callback);
+        };
     }
 
     onTargetChange(callback: TargetChangeCallback): () => void {

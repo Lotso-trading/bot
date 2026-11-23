@@ -10,15 +10,37 @@ export class PolymarketApiTrackerAdapter implements ITrackerPort {
     private targets: TargetTrader[] = [];
     private isRunning = false;
     private intervalTimer: ReturnType<typeof setTimeout> | null = null;
-    private lastCheckedTimestamp = Date.now() - 60000; // 1 minute dans le passé
+    private lastCheckedByTarget = new Map<string, number>();
 
     constructor(
         private readonly dataApiUrl: string,
         private readonly intervalMs = 500
     ) {}
 
+    private targetKey(target: TargetTrader): string {
+        return (target.proxyAddress || target.address).toLowerCase();
+    }
+
+    private syncWatermarks(targets: TargetTrader[]): void {
+        const nowFloor = Date.now() - 60000;
+        const activeKeys = new Set<string>();
+        for (const t of targets) {
+            const key = this.targetKey(t);
+            activeKeys.add(key);
+            if (!this.lastCheckedByTarget.has(key)) {
+                this.lastCheckedByTarget.set(key, nowFloor);
+            }
+        }
+        for (const key of this.lastCheckedByTarget.keys()) {
+            if (!activeKeys.has(key)) {
+                this.lastCheckedByTarget.delete(key);
+            }
+        }
+    }
+
     async start(targets: TargetTrader[], onTrade: OnTradeCallback): Promise<void> {
         this.targets = targets.filter((t) => t.enabled);
+        this.syncWatermarks(this.targets);
         this.isRunning = true;
 
         console.log(
@@ -30,6 +52,7 @@ export class PolymarketApiTrackerAdapter implements ITrackerPort {
 
     updateTargets(targets: TargetTrader[]): void {
         this.targets = targets.filter((t) => t.enabled);
+        this.syncWatermarks(this.targets);
         console.log(`[ApiTracker] Liste des cibles mise à jour: ${this.targets.length} active(s)`);
     }
 
@@ -84,6 +107,11 @@ export class PolymarketApiTrackerAdapter implements ITrackerPort {
 
             if (!rawItems || rawItems.length === 0) return;
 
+            const key = this.targetKey(target);
+            const lastChecked = this.lastCheckedByTarget.get(key) ?? Date.now() - 60000;
+            const freshTrades: DetectedTrade[] = [];
+            let maxTimestamp = lastChecked;
+
             for (const item of rawItems) {
                 const parsed = PolymarketRawActivityTradeSchema.safeParse(item);
                 if (!parsed.success) continue;
@@ -92,7 +120,7 @@ export class PolymarketApiTrackerAdapter implements ITrackerPort {
                 // Normalisation timestamp secondes -> millisecondes si besoin
                 const timestampMs =
                     raw.timestamp < 10000000000 ? raw.timestamp * 1000 : raw.timestamp;
-                if (timestampMs <= this.lastCheckedTimestamp) continue;
+                if (timestampMs <= lastChecked) continue;
 
                 const marketSlug = raw.slug || raw.market?.slug || "polymarket-market";
                 const eventSlug =
@@ -119,7 +147,7 @@ export class PolymarketApiTrackerAdapter implements ITrackerPort {
                     raw.market?.end_date_iso ||
                     raw.market?.game_start_time;
 
-                const detected: DetectedTrade = {
+                freshTrades.push({
                     id: `det_${raw.id || txHash || `${address}_${timestampMs}`}`,
                     targetAddress: target.address,
                     marketSlug,
@@ -140,9 +168,20 @@ export class PolymarketApiTrackerAdapter implements ITrackerPort {
                     transactionHash: txHash,
                     detectedAt: timestampMs,
                     source: "POLYMARKET_API",
-                };
+                });
 
-                this.lastCheckedTimestamp = Math.max(this.lastCheckedTimestamp, timestampMs);
+                if (timestampMs > maxTimestamp) {
+                    maxTimestamp = timestampMs;
+                }
+            }
+
+            if (freshTrades.length === 0) return;
+
+            // Traitement chronologique (du plus ancien au plus récent) puis avance du curseur cible
+            freshTrades.sort((a, b) => a.detectedAt - b.detectedAt);
+            this.lastCheckedByTarget.set(key, maxTimestamp);
+
+            for (const detected of freshTrades) {
                 await onTrade(detected);
             }
         } catch (_err: unknown) {

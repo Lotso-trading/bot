@@ -10,6 +10,7 @@ import type { IApiClientPort } from "../../domain/ports/api-client.port.ts";
 
 export class ApiBackendClientAdapter implements IApiClientPort {
     private lastKnownPositions: OpenPosition[] = [];
+    private lastKnownTargets: TargetTrader[] = [];
 
     constructor(private readonly baseUrl: string) {}
 
@@ -20,12 +21,16 @@ export class ApiBackendClientAdapter implements IApiClientPort {
                 { timeout: 5000 }
             );
             if (res.data?.success && Array.isArray(res.data.data)) {
-                return res.data.data.filter((t) => t.enabled);
+                this.lastKnownTargets = res.data.data.filter((t) => t.enabled);
+                return this.lastKnownTargets;
             }
-            return [];
+            return this.lastKnownTargets;
         } catch (err: unknown) {
-            console.warn("[ApiClient] Impossible de récupérer les cibles depuis l'API:", err);
-            return [];
+            console.warn(
+                "[ApiClient] Impossible de récupérer les cibles depuis l'API (utilisation du cache):",
+                err instanceof Error ? err.message : String(err)
+            );
+            return this.lastKnownTargets;
         }
     }
 

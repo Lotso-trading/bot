@@ -6,6 +6,7 @@ import type {
     RiskConfig,
     TargetTrader,
 } from "@lotso-trading/shared";
+import axios from "axios";
 import { CalculatePositionSizeUseCase } from "../src/application/use-cases/calculate-size.use-case.ts";
 import { EvaluateTradeUseCase } from "../src/application/use-cases/evaluate-trade.use-case.ts";
 import { HandleExitUseCase } from "../src/application/use-cases/handle-exit.use-case.ts";
@@ -13,7 +14,10 @@ import { ReplicateTradeUseCase } from "../src/application/use-cases/replicate-tr
 import type { IApiClientPort } from "../src/domain/ports/api-client.port.ts";
 import type { IExecutorPort } from "../src/domain/ports/executor.port.ts";
 import type { INotifierPort } from "../src/domain/ports/notifier.port.ts";
+import { ApiBackendClientAdapter } from "../src/infrastructure/adapters/api-backend-client.adapter.ts";
+import { ApiWebSocketClientAdapter } from "../src/infrastructure/adapters/api-websocket-client.adapter.ts";
 import { DryRunExecutorAdapter } from "../src/infrastructure/adapters/dry-run-executor.adapter.ts";
+import { PolymarketApiTrackerAdapter } from "../src/infrastructure/adapters/polymarket-api-tracker.adapter.ts";
 import { PolymarketClobAdapter } from "../src/infrastructure/adapters/polymarket-clob.adapter.ts";
 import { Deduplicator } from "../src/infrastructure/deduplication/deduplicator.ts";
 
@@ -439,4 +443,161 @@ Deno.test("DryRunExecutorAdapter - synchronise le solde avec le callback dynamiq
     mockLiveBalance = 1750.0;
     const bal2 = await adapter.getAvailableBalanceUsdc();
     assertEquals(bal2, 1750.0);
+});
+
+Deno.test("PolymarketApiTrackerAdapter - isole le curseur par cible et conserve tous les trades d'un même tick", async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const addrA = "0x1111111111111111111111111111111111111111";
+    const addrB = "0x2222222222222222222222222222222222222222";
+
+    const makeTarget = (id: string, address: string): TargetTrader => ({
+        id,
+        address,
+        alias: id,
+        weightMultiplier: 1,
+        maxUsdcPerTrade: 50,
+        enabled: true,
+        stats: {
+            totalCopiedTrades: 0,
+            totalCopiedVolumeUsdc: 0,
+            realizedPnlUsdc: 0,
+            winRatePercent: 0,
+        },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+    });
+
+    const origGet = axios.get;
+    try {
+        (axios as unknown as { get: typeof axios.get }).get = (async (
+            _url: string,
+            cfg?: { params?: { user?: string } }
+        ) => {
+            if (cfg?.params?.user === addrA) {
+                // Retournés du plus récent au plus ancien : 2 trades dans le même tick
+                return {
+                    data: {
+                        data: [
+                            {
+                                id: "a-new",
+                                timestamp: nowSec + 20,
+                                side: "BUY",
+                                price: 0.5,
+                                size: 10,
+                                condition_id: "0xcondA2",
+                                transaction_hash: "0xtxA2",
+                            },
+                            {
+                                id: "a-old",
+                                timestamp: nowSec + 15,
+                                side: "BUY",
+                                price: 0.4,
+                                size: 10,
+                                condition_id: "0xcondA1",
+                                transaction_hash: "0xtxA1",
+                            },
+                        ],
+                    },
+                };
+            }
+            // Cible B a un trade à nowSec + 10 (antérieur au curseur de A : ne doit PAS être sauté)
+            return {
+                data: {
+                    data: [
+                        {
+                            id: "b-1",
+                            timestamp: nowSec + 10,
+                            side: "BUY",
+                            price: 0.6,
+                            size: 5,
+                            condition_id: "0xcondB1",
+                            transaction_hash: "0xtxB1",
+                        },
+                    ],
+                },
+            };
+        }) as unknown as typeof axios.get;
+
+        const tracker = new PolymarketApiTrackerAdapter("https://data-api.polymarket.com", 60_000);
+        const received: string[] = [];
+        let markDone!: () => void;
+        const done = new Promise<void>((resolve) => {
+            markDone = resolve;
+        });
+
+        await tracker.start([makeTarget("A", addrA), makeTarget("B", addrB)], async (t) => {
+            received.push(t.id);
+            if (received.length === 3) markDone();
+        });
+        await done;
+        await tracker.stop();
+
+        // Ordre chronologique pour A (a-old puis a-new) + trade de B bien reçu
+        assertEquals(received, ["det_a-old", "det_a-new", "det_b-1"]);
+    } finally {
+        (axios as unknown as { get: typeof axios.get }).get = origGet;
+    }
+});
+
+Deno.test("ApiBackendClientAdapter - conserve les cibles en cache lors d'une erreur API transitoire", async () => {
+    const origGet = axios.get;
+    let shouldFail = false;
+    try {
+        (axios as unknown as { get: typeof axios.get }).get = (async () => {
+            if (shouldFail) throw new Error("ECONNREFUSED");
+            return {
+                data: {
+                    success: true,
+                    data: [{ id: "t1", address: "0x1", alias: "RN1", enabled: true }],
+                },
+            };
+        }) as unknown as typeof axios.get;
+
+        const client = new ApiBackendClientAdapter("http://api:3000");
+        const first = await client.getActiveTargets();
+        assertEquals(first.length, 1);
+
+        shouldFail = true;
+        const fallback = await client.getActiveTargets();
+        assertEquals(fallback.length, 1);
+    } finally {
+        (axios as unknown as { get: typeof axios.get }).get = origGet;
+    }
+});
+
+Deno.test("ApiWebSocketClientAdapter - déclenche onConnect à l'ouverture de la connexion", async () => {
+    let serverSocket: WebSocket | null = null;
+    const server = Deno.serve({ port: 0, onListen() {} }, (req) => {
+        const { socket, response } = Deno.upgradeWebSocket(req);
+        serverSocket = socket;
+        socket.onmessage = () => {};
+        return response;
+    });
+
+    const port = (server.addr as Deno.NetAddr).port;
+    const wsClient = new ApiWebSocketClientAdapter(`ws://127.0.0.1:${port}`, "1.0.0");
+
+    try {
+        let connectCount = 0;
+        const connected = new Promise<void>((resolve) => {
+            wsClient.onConnect(() => {
+                connectCount += 1;
+                resolve();
+            });
+        });
+
+        wsClient.connect();
+        await connected;
+        assertEquals(connectCount, 1);
+    } finally {
+        wsClient.disconnect();
+        const sock = serverSocket as WebSocket | null;
+        if (sock && sock.readyState === WebSocket.OPEN) {
+            await new Promise<void>((resolve) => {
+                sock.onclose = () => resolve();
+                sock.close();
+            });
+        }
+        await server.shutdown();
+    }
 });

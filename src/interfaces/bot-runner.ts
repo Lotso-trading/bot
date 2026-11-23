@@ -58,17 +58,19 @@ export class BotRunner {
 
         // Connexion WebSocket persistante à l'API pour les événements temps réel & présence
         this.wsClient = new ApiWebSocketClientAdapter(this.config.apiWsUrl, botVersion);
-        this.wsClient.connect();
+
+        // Resynchronisation des cibles + heartbeat à chaque connexion/reconnexion WebSocket
+        this.wsClient.onConnect(async () => {
+            await apiClient.sendHeartbeat(botVersion);
+            await this.syncTargets(apiClient);
+        });
 
         // Réaction instantanée (0 ms) dès qu'une cible est créée, modifiée ou supprimée
         this.wsClient.onTargetChange(async () => {
             console.log(
                 "[BotRunner] Notification WebSocket de changement de cibles, mise à jour..."
             );
-            await this.refreshTargets(apiClient);
-            if (this.tracker) {
-                this.tracker.updateTargets(Array.from(this.targetMap.values()));
-            }
+            await this.syncTargets(apiClient);
         });
 
         // Sélection de l'exécuteur selon le mode configuré
@@ -118,6 +120,9 @@ export class BotRunner {
         const reconcileAutoRedeem = async () => {
             if (!this.isRunning) return;
             try {
+                if (this.targetMap.size === 0) {
+                    await this.syncTargets(apiClient);
+                }
                 const { wonConditionIds } = await settlePositionsUseCase.execute();
                 for (const condId of wonConditionIds) {
                     await autoRedeemUseCase.execute(condId);
@@ -172,10 +177,22 @@ export class BotRunner {
             }
         };
 
-        const initialTargets = Array.from(this.targetMap.values());
+        const initialTargets = this.getUniqueTargets();
         await this.tracker.start(initialTargets, onTradeDetected);
+        this.wsClient.connect();
 
         this.setupGracefulShutdown(apiClient);
+    }
+
+    private getUniqueTargets(): TargetTrader[] {
+        return Array.from(new Set(this.targetMap.values()));
+    }
+
+    private async syncTargets(apiClient: ApiBackendClientAdapter): Promise<void> {
+        await this.refreshTargets(apiClient);
+        if (this.tracker) {
+            this.tracker.updateTargets(this.getUniqueTargets());
+        }
     }
 
     private async refreshTargets(apiClient: ApiBackendClientAdapter): Promise<void> {
