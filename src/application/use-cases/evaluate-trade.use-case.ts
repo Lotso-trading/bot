@@ -22,6 +22,14 @@ export class EvaluateTradeUseCase {
             };
         }
 
+        // 0b. Rejet des parlays / combos sports multi-legs (conditionId 0x03...0000 non exposé sur CLOB/Gamma)
+        if (/^0x03[a-fA-F0-9]{30,36}0{24,}$/i.test(trade.conditionId)) {
+            return {
+                isValid: false,
+                reason: `COMBO_PARLAY_NON_SUPPORTE (Marché combiné non tradable/résoluble via CLOB/Gamma: ${trade.conditionId.slice(0, 14)}...)`,
+            };
+        }
+
         // 1. Vérification des bornes de cote
         if (trade.price < riskConfig.minPrice) {
             return {

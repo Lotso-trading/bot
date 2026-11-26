@@ -601,3 +601,271 @@ Deno.test("ApiWebSocketClientAdapter - déclenche onConnect à l'ouverture de la
         await server.shutdown();
     }
 });
+
+Deno.test("EvaluateTradeUseCase - rejette les parlays / combos sports 0x03...0000", () => {
+    const evaluator = new EvaluateTradeUseCase();
+    const config: RiskConfig = {
+        balancePercentPerTrade: 0.03,
+        maxSlippagePercent: 2.0,
+        maxCapPerTradeUsdc: 50.0,
+        maxExposurePerMarketUsdc: 150.0,
+        maxExposurePerTargetUsdc: 300.0,
+        minCashReserveUsdc: 5.0,
+        minPrice: 0.05,
+        maxPrice: 0.9,
+        copySellOrders: true,
+        dryRun: true,
+        simulatedBalanceUsdc: 1000.0,
+        maxAllocatedCapitalUsdc: 0,
+        profitReinvestmentPercent: 50.0,
+        isBotRunning: true,
+        isBotOnline: true,
+    };
+    const parlayTrade: DetectedTrade = {
+        id: "dt-parlay",
+        targetAddress: "0x5a218c7ad04135830a45c41aaed7294df7809318",
+        marketSlug: "polymarket-market",
+        marketQuestion: "Norway vs. Wales: O/U 2.5 AND Will Norway win?",
+        conditionId: "0x0340fc04cb93f6c622ac342db7868f08d70000000000000000000000000000",
+        assetAddress: "0x0340fc04cb93f6c622ac342db7868f08d70000000000000000000000000000",
+        outcomeIndex: 0,
+        outcomeLabel: "Yes",
+        side: "BUY",
+        price: 0.45,
+        sizeShares: 10,
+        sizeUsdc: 4.5,
+        detectedAt: Date.now(),
+        source: "POLYMARKET_API",
+    };
+
+    const res = evaluator.evaluate(parlayTrade, null, config);
+    assertEquals(res.isValid, false);
+    if (!res.isValid) {
+        assertEquals(res.reason.includes("COMBO_PARLAY_NON_SUPPORTE"), true);
+    }
+});
+
+Deno.test("PolymarketApiTrackerAdapter - filtre REDEEM/MERGE/CONVERSION/parlays 0x03 et propage token_id", async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const addr = "0x5a218c7ad04135830a45c41aaed7294df7809318";
+    const expectedTokenId =
+        "36846838195353411496324646910705814710168117218429397112990127675877131827213";
+    let capturedParams: Record<string, unknown> | undefined;
+
+    const target: TargetTrader = {
+        id: "balthazar",
+        address: addr,
+        alias: "Balthazar",
+        weightMultiplier: 1,
+        enabled: true,
+        stats: {
+            totalCopiedTrades: 0,
+            totalCopiedVolumeUsdc: 0,
+            realizedPnlUsdc: 0,
+            winRatePercent: 0,
+        },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+    };
+
+    const origGet = axios.get;
+    try {
+        (axios as unknown as { get: typeof axios.get }).get = (async (
+            _url: string,
+            cfg?: { params?: Record<string, unknown> }
+        ) => {
+            capturedParams = cfg?.params;
+            return {
+                data: {
+                    data: [
+                        // 1. REDEEM -> doit être ignoré
+                        {
+                            id: "redeem-1",
+                            type: "REDEEM",
+                            timestamp: nowSec + 30,
+                            side: "",
+                            price: 0,
+                            size: 100,
+                            condition_id:
+                                "0xe47a88a76e5b61551381de57e7e052f272ab492ef9e96ce505dac9684664d63a",
+                            token_id: expectedTokenId,
+                            outcome: "Yes",
+                        },
+                        // 2. CONVERSION NegRisk -> doit être ignoré
+                        {
+                            id: "conv-1",
+                            type: "CONVERSION",
+                            timestamp: nowSec + 25,
+                            side: "",
+                            price: 0,
+                            size: 10,
+                            condition_id:
+                                "0x602b2b425851a3a12b048b59e8192e30afc0ae42d7ea0a5f74038d1cf0426c00",
+                            token_id: "",
+                            outcome_index: 999,
+                            outcome: "",
+                        },
+                        // 3. Parlay 0x03...0000 -> doit être ignoré
+                        {
+                            id: "parlay-1",
+                            type: "TRADE",
+                            timestamp: nowSec + 20,
+                            side: "BUY",
+                            price: 0.46,
+                            size: 10,
+                            condition_id:
+                                "0x0340fc04cb93f6c622ac342db7868f08d70000000000000000000000000000",
+                            token_id: expectedTokenId,
+                            outcome: "Yes",
+                        },
+                        // 4. Vrai TRADE -> doit passer avec assetAddress === token_id
+                        {
+                            id: "real-trade-1",
+                            type: "TRADE",
+                            timestamp: nowSec + 15,
+                            side: "BUY",
+                            price: 0.61,
+                            size: 30,
+                            condition_id:
+                                "0xef4a879c31da19e9ec9959c0de93e5bb65c679d6c55e6e958121af0710125739",
+                            token_id: expectedTokenId,
+                            outcome: "No",
+                            outcome_index: 1,
+                        },
+                    ],
+                },
+            };
+        }) as unknown as typeof axios.get;
+
+        const tracker = new PolymarketApiTrackerAdapter("https://data-api.polymarket.com", 60_000);
+        const received: DetectedTrade[] = [];
+        let markDone!: () => void;
+        const done = new Promise<void>((resolve) => {
+            markDone = resolve;
+        });
+
+        await tracker.start([target], async (t) => {
+            received.push(t);
+            markDone();
+        });
+        await done;
+        await tracker.stop();
+
+        assertEquals(capturedParams?.type, "TRADE");
+        assertEquals(received.length, 1);
+        assertEquals(received[0]?.id, "det_real-trade-1");
+        assertEquals(received[0]?.assetAddress, expectedTokenId);
+        assertEquals(received[0]?.outcomeLabel, "No");
+    } finally {
+        (axios as unknown as { get: typeof axios.get }).get = origGet;
+    }
+});
+
+Deno.test("ReplicateTradeUseCase - passe token_id au contrôle slippage et throttle les rejets SOLDE_INSUFFISANT", async () => {
+    const tokenId = "86238856930269158297633894715344370305155758731248529282208377802102469059377";
+    let recordedRejections = 0;
+    let priceLookupId = "";
+
+    const mockApiClient = {
+        getActiveTargets: async () => [],
+        getBotConfig: async () => ({
+            balancePercentPerTrade: 0.03,
+            maxSlippagePercent: 2.0,
+            maxCapPerTradeUsdc: 50.0,
+            maxExposurePerMarketUsdc: 150.0,
+            maxExposurePerTargetUsdc: 300.0,
+            minCashReserveUsdc: 5.0,
+            minPrice: 0.05,
+            maxPrice: 0.9,
+            copySellOrders: true,
+            dryRun: false,
+            maxAllocatedCapitalUsdc: 0,
+            profitReinvestmentPercent: 50.0,
+            isBotRunning: true,
+            isBotOnline: true,
+        }),
+        getOpenPosition: async () => null,
+        getAllOpenPositions: async () => [],
+        recordTrade: async (t: ExecutedTrade) => {
+            if (t.status === "REJECTED") {
+                recordedRejections++;
+                assertEquals(t.isDryRun, false);
+            }
+            return t;
+        },
+        sendHeartbeat: async () => {},
+        sendShutdown: async () => {},
+    };
+
+    let walletBalance = 2.0; // Déclenche SOLDE_INSUFFISANT
+    const mockExecutor = {
+        getAvailableBalanceUsdc: async () => walletBalance,
+        getCurrentBestPrice: async (id: string) => {
+            priceLookupId = id;
+            return 0.6; // Slippage +20% vs 0.5 -> SLIPPAGE_EXCESSIF
+        },
+        executeBuy: async () => {
+            throw new Error("Ne devrait pas être appelé");
+        },
+        executeSell: async () => {
+            throw new Error("Ne devrait pas être appelé");
+        },
+    };
+
+    const mockNotifier = {
+        sendBuyAlert: async () => {},
+        sendSellAlert: async () => {},
+        sendRejectionAlert: async () => {},
+        sendErrorAlert: async () => {},
+    };
+
+    const useCase = new ReplicateTradeUseCase(
+        mockApiClient as unknown as IApiClientPort,
+        mockExecutor as unknown as IExecutorPort,
+        mockNotifier as unknown as INotifierPort
+    );
+
+    const target: TargetTrader = {
+        id: "t1",
+        address: "0x4bfb41d5b3570defd03c39a9a4d8de6bd8b8982e",
+        alias: "RN1",
+        weightMultiplier: 1,
+        enabled: true,
+        stats: {
+            totalCopiedTrades: 0,
+            totalCopiedVolumeUsdc: 0,
+            realizedPnlUsdc: 0,
+            winRatePercent: 0,
+        },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+    };
+
+    const trade: DetectedTrade = {
+        id: "dt-slip-1",
+        targetAddress: target.address,
+        marketSlug: "test",
+        marketQuestion: "Test?",
+        conditionId: "0xef4a879c31da19e9ec9959c0de93e5bb65c679d6c55e6e958121af0710125739",
+        assetAddress: tokenId,
+        outcomeIndex: 0,
+        outcomeLabel: "Yes",
+        side: "BUY",
+        price: 0.5,
+        sizeShares: 10,
+        sizeUsdc: 5,
+        detectedAt: Date.now(),
+        source: "POLYMARKET_API",
+    };
+
+    // Deux rejets SOLDE_INSUFFISANT consécutifs -> 1 seul persisté grâce au throttle
+    await useCase.execute(trade, target);
+    await useCase.execute({ ...trade, id: "dt-slip-2" }, target);
+    assertEquals(recordedRejections, 1);
+
+    // Avec solde suffisant -> getCurrentBestPrice reçoit bien token_id et rejette sur slippage
+    walletBalance = 500;
+    await useCase.execute({ ...trade, id: "dt-slip-3" }, target);
+    assertEquals(priceLookupId, tokenId);
+    assertEquals(recordedRejections, 2);
+});

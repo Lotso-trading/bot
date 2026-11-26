@@ -105,28 +105,28 @@ export class BotRunner {
             this.config.polymarketClobApiUrl
         );
 
-        // Réaction instantanée (WebSocket) dès qu'un marché est résolu gagnant -> Auto-Redeem
+        // Réaction instantanée (WebSocket) dès qu'un marché est résolu avec payout > 0 -> Auto-Redeem
         this.wsClient.onPositionClosed(async (data) => {
-            if (data.closeReason === "RESOLVED_WIN") {
+            const isRedeemable =
+                data.closeReason === "RESOLVED_WIN" ||
+                (data.closeReason === "RESOLVED_CANCELLED" && (data.settledPayoutUsdc ?? 0) > 0);
+            if (isRedeemable) {
                 console.log(
-                    `\n[BotRunner] Notification temps réel : Marché résolu GAGNANT pour conditionId=${data.conditionId.slice(0, 16)}...`
+                    `\n[BotRunner] Notification temps réel : Marché clôturé (${data.closeReason}) pour conditionId=${data.conditionId.slice(0, 16)}...`
                 );
                 await autoRedeemUseCase.execute(data.conditionId);
             }
         });
 
         // Boucle de réconciliation périodique (toutes les 60s) & sur commande WS dashboard :
-        // Le Bot vérifie lui-même les marchés résolus sur Polymarket puis persiste via l'API et rachète les gains.
+        // Le Bot vérifie lui-même les marchés résolus sur Polymarket puis persiste via l'API et rattrape les rachats en attente.
         const reconcileAutoRedeem = async () => {
             if (!this.isRunning) return;
             try {
                 if (this.targetMap.size === 0) {
                     await this.syncTargets(apiClient);
                 }
-                const { wonConditionIds } = await settlePositionsUseCase.execute();
-                for (const condId of wonConditionIds) {
-                    await autoRedeemUseCase.execute(condId);
-                }
+                await settlePositionsUseCase.execute();
                 await autoRedeemUseCase.redeemAllPending();
             } catch (err: unknown) {
                 console.warn("[BotRunner] Erreur lors de la réconciliation Auto-Redeem:", err);

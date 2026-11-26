@@ -95,6 +95,7 @@ export class PolymarketApiTrackerAdapter implements ITrackerPort {
                 params: {
                     user: address,
                     limit: 10,
+                    type: "TRADE",
                 },
                 timeout: 4000,
             });
@@ -117,10 +118,48 @@ export class PolymarketApiTrackerAdapter implements ITrackerPort {
                 if (!parsed.success) continue;
 
                 const raw = parsed.data;
+                // Filtre défensif strict : ignorer REDEEM, MERGE, SPLIT, CONVERSION, REWARD
+                const rawType = raw.type?.trim().toUpperCase();
+                if (rawType && rawType !== "TRADE") continue;
+
+                // Un vrai trade possède toujours un côté (BUY/SELL), un prix ]0,1[ et une taille > 0
+                if (raw.side !== "BUY" && raw.side !== "SELL") continue;
+                if (
+                    raw.price === undefined ||
+                    !Number.isFinite(raw.price) ||
+                    raw.price <= 0 ||
+                    raw.price >= 1
+                ) {
+                    continue;
+                }
+                if (raw.size === undefined || !Number.isFinite(raw.size) || raw.size <= 0) {
+                    continue;
+                }
+
+                const outcomeIndex = raw.outcome_index ?? raw.outcomeIndex ?? 0;
+                if (outcomeIndex === 999) continue;
+                if (raw.outcome !== undefined && raw.outcome.trim() === "") continue;
+
                 // Normalisation timestamp secondes -> millisecondes si besoin
                 const timestampMs =
                     raw.timestamp < 10000000000 ? raw.timestamp * 1000 : raw.timestamp;
                 if (timestampMs <= lastChecked) continue;
+
+                const conditionId = (
+                    raw.condition_id ||
+                    raw.conditionId ||
+                    raw.market?.condition_id ||
+                    raw.market?.conditionId ||
+                    ""
+                ).trim();
+                if (!conditionId) continue;
+
+                // Rejeter les parlays / combos sports multi-legs (non exposés CLOB/Gamma)
+                if (/^0x03[a-fA-F0-9]{30,36}0{24,}$/i.test(conditionId)) continue;
+
+                // Sur /v2/activity, MERGE/CONVERSION renvoient token_id: ""
+                const tokenId = raw.token_id?.trim() || raw.asset?.trim() || "";
+                if (raw.token_id !== undefined && tokenId === "") continue;
 
                 const marketSlug = raw.slug || raw.market?.slug || "polymarket-market";
                 const eventSlug =
@@ -130,14 +169,6 @@ export class PolymarketApiTrackerAdapter implements ITrackerPort {
                     raw.market?.eventSlug ||
                     undefined;
                 const marketQuestion = raw.title || raw.market?.question || "Question inconnue";
-                const conditionId =
-                    raw.condition_id ||
-                    raw.conditionId ||
-                    raw.market?.condition_id ||
-                    raw.market?.conditionId ||
-                    raw.asset ||
-                    raw.token_id ||
-                    target.address;
                 const txHash = raw.transaction_hash || raw.transactionHash;
                 const endDate =
                     raw.endDate ||
@@ -155,16 +186,13 @@ export class PolymarketApiTrackerAdapter implements ITrackerPort {
                     marketQuestion,
                     conditionId,
                     endDate,
-                    assetAddress: raw.asset || target.address,
-                    outcomeIndex: raw.outcome_index ?? raw.outcomeIndex ?? 0,
-                    outcomeLabel: raw.outcome || "Yes",
-                    side: raw.side === "SELL" ? "SELL" : "BUY",
-                    price: raw.price > 0 && raw.price < 1 ? raw.price : 0.5,
-                    sizeShares: raw.size > 0 ? raw.size : 10,
-                    sizeUsdc:
-                        raw.usdc_size ||
-                        raw.usdcSize ||
-                        (raw.size > 0 && raw.price > 0 ? raw.size * raw.price : 5),
+                    assetAddress: tokenId || conditionId,
+                    outcomeIndex,
+                    outcomeLabel: raw.outcome?.trim() || "Yes",
+                    side: raw.side,
+                    price: raw.price,
+                    sizeShares: raw.size,
+                    sizeUsdc: raw.usdc_size || raw.usdcSize || raw.size * raw.price,
                     transactionHash: txHash,
                     detectedAt: timestampMs,
                     source: "POLYMARKET_API",

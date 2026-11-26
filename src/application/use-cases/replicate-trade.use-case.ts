@@ -17,6 +17,9 @@ export class ReplicateTradeUseCase {
     private readonly evaluateTrade = new EvaluateTradeUseCase();
     private readonly handleExit = new HandleExitUseCase();
     private readonly lastBuyTimestampByCondition: Map<string, number> = new Map();
+    private readonly lastRejectionPersistedAt: Map<string, number> = new Map();
+    private readonly rejectionThrottleMs = 5 * 60 * 1000;
+    private readonly throttledRejectionPrefixes = ["SOLDE_INSUFFISANT", "COOLDOWN_ANTI_RAFALE"];
 
     constructor(
         private readonly apiClient: IApiClientPort,
@@ -47,7 +50,7 @@ export class ReplicateTradeUseCase {
                 const reason = isSanctuarizedBudgetHit
                     ? `SOLDE_INSUFFISANT : Capital alloué au bot atteint (Budget restant: ${botRemainingCash.toFixed(2)} USDC <= Réserve: ${minReserve.toFixed(2)} USDC, Plafond max: ${maxBotBudget.toFixed(2)} USDC)`
                     : `SOLDE_INSUFFISANT : Portefeuille vide (Cash disponible: ${effectiveBalance.toFixed(2)} USDC <= Réserve min: ${minReserve.toFixed(2)} USDC)`;
-                await this.handleRejection(trade, target, reason);
+                await this.handleRejection(trade, target, reason, config.dryRun);
                 return null;
             }
 
@@ -56,7 +59,7 @@ export class ReplicateTradeUseCase {
             const cooldownMs = 60_000; // 60 secondes de pause entre deux réplications du même marché
             if (Date.now() - lastBuyTime < cooldownMs) {
                 const reason = `COOLDOWN_ANTI_RAFALE (Achat déjà répliqué sur ce marché il y a moins de 60s)`;
-                await this.handleRejection(trade, target, reason);
+                await this.handleRejection(trade, target, reason, config.dryRun);
                 return null;
             }
 
@@ -69,7 +72,7 @@ export class ReplicateTradeUseCase {
 
             if (currentMarketExposure >= maxMarketExposure) {
                 const reason = `EXPOSITION_MAX_MARCHE_ATTEINTE (Déjà investi: ${currentMarketExposure.toFixed(2)} USDC >= Plafond: ${maxMarketExposure.toFixed(2)} USDC)`;
-                await this.handleRejection(trade, target, reason);
+                await this.handleRejection(trade, target, reason, config.dryRun);
                 return null;
             }
 
@@ -84,7 +87,7 @@ export class ReplicateTradeUseCase {
 
             if (currentWhaleExposure >= maxWhaleExposure) {
                 const reason = `EXPOSITION_MAX_BALEINE_ATTEINTE (Déjà alloué à ${target.alias}: ${currentWhaleExposure.toFixed(2)} USDC >= Plafond: ${maxWhaleExposure.toFixed(2)} USDC)`;
-                await this.handleRejection(trade, target, reason);
+                await this.handleRejection(trade, target, reason, config.dryRun);
                 return null;
             }
 
@@ -108,15 +111,16 @@ export class ReplicateTradeUseCase {
 
             if (allocatedSizeUsdc < 1.0) {
                 const reason = `SOLDE_INSUFFISANT (Taille calculée < 1.0 USDC après application des plafonds de risque)`;
-                await this.handleRejection(trade, target, reason);
+                await this.handleRejection(trade, target, reason, config.dryRun);
                 return null;
             }
 
-            const currentPrice = await this.executor.getCurrentBestPrice(trade.conditionId, "BUY");
+            const priceTokenId = trade.assetAddress || trade.conditionId;
+            const currentPrice = await this.executor.getCurrentBestPrice(priceTokenId, "BUY");
             const evaluation = this.evaluateTrade.evaluate(trade, currentPrice, config);
 
             if (!evaluation.isValid) {
-                await this.handleRejection(trade, target, evaluation.reason);
+                await this.handleRejection(trade, target, evaluation.reason, config.dryRun);
                 return null;
             }
 
@@ -150,8 +154,9 @@ export class ReplicateTradeUseCase {
                 return null;
             }
 
+            const sellPriceTokenId = exitDecision.position.assetAddress || trade.conditionId;
             const currentPrice =
-                (await this.executor.getCurrentBestPrice(trade.conditionId, "SELL")) ?? trade.price;
+                (await this.executor.getCurrentBestPrice(sellPriceTokenId, "SELL")) ?? trade.price;
 
             console.log(
                 `[ReplicateTrade] Exécution VENTE pour ${target.alias} (${exitDecision.sharesToSell} parts vendues)`
@@ -233,15 +238,37 @@ export class ReplicateTradeUseCase {
     private async handleRejection(
         trade: DetectedTrade,
         target: TargetTrader,
-        reason: string
+        reason: string,
+        isDryRun = true
     ): Promise<void> {
+        const now = Date.now();
+        const matchedPrefix = this.throttledRejectionPrefixes.find((prefix) =>
+            reason.startsWith(prefix)
+        );
+        if (matchedPrefix) {
+            const throttleKey = `${target.address.toLowerCase()}:${trade.conditionId}:${matchedPrefix}`;
+            const lastSent = this.lastRejectionPersistedAt.get(throttleKey) ?? 0;
+            if (now - lastSent < this.rejectionThrottleMs) {
+                return;
+            }
+            this.lastRejectionPersistedAt.set(throttleKey, now);
+            if (this.lastRejectionPersistedAt.size > 1000) {
+                for (const [k, ts] of this.lastRejectionPersistedAt.entries()) {
+                    if (now - ts > this.rejectionThrottleMs) {
+                        this.lastRejectionPersistedAt.delete(k);
+                    }
+                }
+            }
+        }
+
         console.warn(`[ReplicateTrade] REJET pour ${target.alias} : ${reason}`);
 
         const rejectedTrade: ExecutedTrade = {
-            id: `rej_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            id: `rej_${now}_${Math.random().toString(36).substring(2, 7)}`,
             detectedTradeId: trade.id,
             targetAddress: target.address,
             conditionId: trade.conditionId,
+            assetAddress: trade.assetAddress,
             marketSlug: trade.marketSlug,
             eventSlug: trade.eventSlug,
             marketQuestion: trade.marketQuestion,
@@ -254,8 +281,8 @@ export class ReplicateTradeUseCase {
             costUsdc: 0,
             status: "REJECTED",
             rejectionReason: reason,
-            isDryRun: true,
-            executedAt: Date.now(),
+            isDryRun,
+            executedAt: now,
         };
 
         await this.apiClient.recordTrade(rejectedTrade);

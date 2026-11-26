@@ -60,8 +60,8 @@ export class DryRunExecutorAdapter implements IExecutorPort {
     }
 
     async executeBuy(trade: DetectedTrade, sizeUsdc: number): Promise<ExecutedTrade> {
-        const marketPrice =
-            (await this.getCurrentBestPrice(trade.conditionId, "BUY")) ?? trade.price;
+        const priceTokenId = trade.assetAddress || trade.conditionId;
+        const marketPrice = (await this.getCurrentBestPrice(priceTokenId, "BUY")) ?? trade.price;
         // Simulation d'un micro-slippage de marché (0.2%)
         const executedPrice = Math.min(0.99, marketPrice * 1.002);
         const shares = Math.floor((sizeUsdc / executedPrice) * 100) / 100;
@@ -75,6 +75,7 @@ export class DryRunExecutorAdapter implements IExecutorPort {
             detectedTradeId: trade.id,
             targetAddress: trade.targetAddress,
             conditionId: trade.conditionId,
+            assetAddress: trade.assetAddress,
             marketSlug: trade.marketSlug,
             eventSlug: trade.eventSlug,
             marketQuestion: trade.marketQuestion,
@@ -108,6 +109,7 @@ export class DryRunExecutorAdapter implements IExecutorPort {
             detectedTradeId: `exit_${position.conditionId}_${Date.now()}`,
             targetAddress,
             conditionId: position.conditionId,
+            assetAddress: position.assetAddress,
             marketSlug: position.marketSlug,
             eventSlug: position.eventSlug,
             marketQuestion: position.marketQuestion,

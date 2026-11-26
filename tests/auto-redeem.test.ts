@@ -154,3 +154,37 @@ Deno.test("AutoRedeemUseCase - redeemAllPending réclame toutes les positions no
     assertEquals(redeemedSet.has("0xpos_alpha"), true);
     assertEquals(redeemedSet.has("0xpos_beta"), true);
 });
+
+Deno.test("AutoRedeemUseCase - empêche un double rachat séquentiel sur le même conditionId (cooldown)", async () => {
+    let redeemCalls = 0;
+
+    const mockApiClient: IApiClientPort = {
+        getActiveTargets: () => Promise.resolve([]),
+        getBotConfig: () => Promise.reject(new Error("not implemented")),
+        getOpenPosition: () => Promise.resolve(null),
+        getAllOpenPositions: () => Promise.resolve([]),
+        recordPositionRedeemed: () => Promise.resolve(),
+        recordTrade: () => Promise.reject(new Error("not implemented")),
+        sendHeartbeat: () => Promise.resolve(),
+        sendShutdown: () => Promise.resolve(),
+    };
+
+    const mockExecutor: IExecutorPort = {
+        executeBuy: () => Promise.reject(new Error("not implemented")),
+        executeSell: () => Promise.reject(new Error("not implemented")),
+        getAvailableBalanceUsdc: () => Promise.resolve(100),
+        getCurrentBestPrice: () => Promise.resolve(1),
+        redeemWinningPosition: (condId: string) => {
+            redeemCalls++;
+            return Promise.resolve(`tx_once_${condId}`);
+        },
+    };
+
+    const useCase = new AutoRedeemUseCase(mockApiClient, mockExecutor);
+    const first = await useCase.execute("0xrepeat_guard");
+    const second = await useCase.execute("0xrepeat_guard");
+
+    assertEquals(first, "tx_once_0xrepeat_guard");
+    assertEquals(second, null);
+    assertEquals(redeemCalls, 1);
+});

@@ -4,6 +4,8 @@ import type { INotifierPort } from "../../domain/ports/notifier.port.ts";
 
 export class AutoRedeemUseCase {
     private readonly inFlightRedemptions = new Set<string>();
+    private readonly recentlyRedeemed = new Map<string, number>();
+    private readonly redeemCooldownMs = 5 * 60 * 1000;
 
     constructor(
         private readonly apiClient: IApiClientPort,
@@ -12,8 +14,23 @@ export class AutoRedeemUseCase {
         private readonly isDryRun = false
     ) {}
 
+    private pruneRecentlyRedeemed(now: number): void {
+        for (const [key, ts] of this.recentlyRedeemed.entries()) {
+            if (now - ts > this.redeemCooldownMs) {
+                this.recentlyRedeemed.delete(key);
+            }
+        }
+    }
+
     async execute(conditionId: string): Promise<string | null> {
         if (!conditionId || conditionId === "0x") return null;
+
+        const now = Date.now();
+        this.pruneRecentlyRedeemed(now);
+
+        if (this.recentlyRedeemed.has(conditionId)) {
+            return null;
+        }
 
         if (this.inFlightRedemptions.has(conditionId)) {
             console.log(
@@ -36,6 +53,8 @@ export class AutoRedeemUseCase {
 
             const txHash = await this.executor.redeemWinningPosition(conditionId);
             console.log(`[AutoRedeem] ✅ Rachat validé ! TxHash: ${txHash}`);
+
+            this.recentlyRedeemed.set(conditionId, Date.now());
 
             // Enregistrement sur l'API (MongoDB)
             await this.apiClient.recordPositionRedeemed?.(conditionId, txHash);
@@ -71,12 +90,24 @@ export class AutoRedeemUseCase {
                 return 0;
             }
 
+            const now = Date.now();
+            this.pruneRecentlyRedeemed(now);
+            const eligible = unredeemed.filter(
+                (pos) =>
+                    !pos.settleTxHash &&
+                    !this.inFlightRedemptions.has(pos.conditionId) &&
+                    !this.recentlyRedeemed.has(pos.conditionId)
+            );
+            if (eligible.length === 0) {
+                return 0;
+            }
+
             console.log(
-                `[AutoRedeem] 🔍 ${unredeemed.length} position(s) gagnante(s) non réclamée(s) trouvée(s). Lancement du rachat...`
+                `[AutoRedeem] 🔍 ${eligible.length} position(s) éligible(s) non réclamée(s) trouvée(s). Lancement du rachat...`
             );
 
             let count = 0;
-            for (const pos of unredeemed) {
+            for (const pos of eligible) {
                 const txHash = await this.execute(pos.conditionId);
                 if (txHash) {
                     count++;

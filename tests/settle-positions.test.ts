@@ -119,3 +119,94 @@ Deno.test("SettlePositionsUseCase - mutex single-flight mutualise les appels con
     assertEquals(results.length, 3);
     assertEquals(results[0]?.settledCount, 0);
 });
+
+Deno.test("SettlePositionsUseCase - clôture un marché annulé 50/50 en RESOLVED_CANCELLED avec payout 0.50/part", async () => {
+    const originalFetch = globalThis.fetch;
+    const openPos = createOpenPosition({
+        conditionId: "0xe4701628a8a5a26993f4949c5e74712be1dba01793d3cd0eb7006c3c9dadf38c",
+        marketQuestion: "UFC 334: Kevin Holland vs. Uroš Medic",
+        outcomeLabel: "Uroš Medic",
+        totalShares: 20.92,
+        avgEntryPrice: 0.5813,
+        totalInvestedUsdc: 12.16,
+    });
+    let capturedClose: { conditionId: string; payload: ClosePositionInput } | null = null;
+    let gammaRequestedUrl = "";
+
+    const mockApiClient: IApiClientPort = {
+        getActiveTargets: () => Promise.resolve([]),
+        getBotConfig: () => Promise.reject(new Error("not used")),
+        getOpenPosition: () => Promise.resolve(null),
+        getAllOpenPositions: () => Promise.resolve([openPos]),
+        recordTrade: () => Promise.reject(new Error("not used")),
+        closePosition: (conditionId: string, payload: ClosePositionInput) => {
+            capturedClose = { conditionId, payload };
+            return Promise.resolve({
+                ...openPos,
+                status: "CLOSED",
+                closeReason: payload.closeReason,
+                settledPayoutUsdc: payload.settledPayoutUsdc,
+            });
+        },
+        sendHeartbeat: () => Promise.resolve(),
+        sendShutdown: () => Promise.resolve(),
+    };
+
+    globalThis.fetch = ((url: string | URL | Request) => {
+        const urlStr = String(url);
+        if (urlStr.includes("clob.polymarket.com")) {
+            return Promise.resolve(
+                new Response(
+                    JSON.stringify({
+                        closed: true,
+                        accepting_orders: false,
+                        end_date_iso: "2026-11-15T00:00:00Z",
+                        tokens: [
+                            { outcome: "Kevin Holland", winner: false, price: 0.5 },
+                            { outcome: "Uroš Medic", winner: false, price: 0.5 },
+                        ],
+                    }),
+                    { status: 200 }
+                )
+            );
+        }
+        if (urlStr.includes("gamma-api.polymarket.com")) {
+            gammaRequestedUrl = urlStr;
+            return Promise.resolve(
+                new Response(
+                    JSON.stringify([
+                        {
+                            conditionId: openPos.conditionId,
+                            closed: true,
+                            umaResolutionStatus: "resolved",
+                            endDate: "2026-11-15T04:59:59.999Z",
+                            outcomes: JSON.stringify(["Kevin Holland", "Uroš Medic"]),
+                            outcomePrices: JSON.stringify(["0.5", "0.5"]),
+                        },
+                    ]),
+                    { status: 200 }
+                )
+            );
+        }
+        return Promise.resolve(new Response("{}", { status: 404 }));
+    }) as typeof fetch;
+
+    try {
+        const useCase = new SettlePositionsUseCase(mockApiClient);
+        const result = await useCase.execute();
+
+        assertEquals(gammaRequestedUrl.includes("closed=true"), true);
+        assertEquals(result.settledCount, 1);
+        assertEquals(result.wonConditionIds, []);
+        assertEquals(result.redeemableConditionIds, [openPos.conditionId]);
+        const closeCall = capturedClose as unknown as {
+            conditionId: string;
+            payload: ClosePositionInput;
+        };
+        assertEquals(closeCall.payload.closeReason, "RESOLVED_CANCELLED");
+        assertEquals(closeCall.payload.payoutPricePerShare, 0.5);
+        assertEquals(closeCall.payload.settledPayoutUsdc, 10.46);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});

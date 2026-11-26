@@ -137,10 +137,12 @@ export class PolygonRpcTrackerAdapter implements ITrackerPort {
             // Note de sécurité : L'événement OrderFilled on-chain nécessite un décodage complet de l'ABI
             // (extraction de makerAssetId / takerAssetId) et une résolution du conditionId via le token ID.
             // Émettre un trade mocké avec log.address comme conditionId crée des positions fantômes corrompues.
-            // En attendant le décodeur ABI complet, nous loggons la détection sans émettre d'ordre fictif.
-            console.log(
-                `[PolygonRpcTracker] Événement on-chain détecté pour ${matchedTarget} (tx: ${log.transactionHash.slice(0, 10)}...) - Décodage ABI en attente`
-            );
+            // En attendant le décodeur ABI complet, on évite le spam de logs sauf mode DEBUG explicite.
+            if (Deno.env.get("DEBUG_POLYGON_RPC") === "true") {
+                console.log(
+                    `[PolygonRpcTracker] Événement on-chain détecté pour ${matchedTarget} (tx: ${log.transactionHash.slice(0, 10)}...) - Décodage ABI en attente`
+                );
+            }
         } catch (_err: unknown) {
             // Ignoré
         }
