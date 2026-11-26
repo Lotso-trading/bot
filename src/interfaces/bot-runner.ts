@@ -54,6 +54,7 @@ export class BotRunner {
             buyWebhookUrl: this.config.discordBuyWebhookUrl,
             sellWebhookUrl: this.config.discordSellWebhookUrl,
             closedPositionsWebhookUrl: this.config.discordClosedPositionsWebhookUrl,
+            autoRedeemWebhookUrl: this.config.discordAutoRedeemWebhookUrl,
         });
 
         // Connexion WebSocket persistante à l'API pour les événements temps réel & présence

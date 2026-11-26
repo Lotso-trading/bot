@@ -1,3 +1,4 @@
+import type { OpenPosition } from "@lotso-trading/shared";
 import type { IApiClientPort } from "../../domain/ports/api-client.port.ts";
 import type { IExecutorPort } from "../../domain/ports/executor.port.ts";
 import type { INotifierPort } from "../../domain/ports/notifier.port.ts";
@@ -22,7 +23,7 @@ export class AutoRedeemUseCase {
         }
     }
 
-    async execute(conditionId: string): Promise<string | null> {
+    async execute(conditionId: string, knownPosition?: OpenPosition): Promise<string | null> {
         if (!conditionId || conditionId === "0x") return null;
 
         const now = Date.now();
@@ -57,11 +58,15 @@ export class AutoRedeemUseCase {
             this.recentlyRedeemed.set(conditionId, Date.now());
 
             // Enregistrement sur l'API (MongoDB)
-            await this.apiClient.recordPositionRedeemed?.(conditionId, txHash);
+            const redeemedPosition =
+                (await this.apiClient.recordPositionRedeemed?.(conditionId, txHash)) ?? null;
 
-            // Notification Discord
+            // Notification Discord (privilégie la position clôturée retournée par l'API ou connue)
             try {
-                const position = await this.apiClient.getOpenPosition(conditionId);
+                const position =
+                    redeemedPosition ??
+                    knownPosition ??
+                    (await this.apiClient.getOpenPosition(conditionId));
                 if (position) {
                     await this.notifier?.sendRedeemAlert?.(position, txHash, this.isDryRun);
                 }
@@ -108,7 +113,7 @@ export class AutoRedeemUseCase {
 
             let count = 0;
             for (const pos of eligible) {
-                const txHash = await this.execute(pos.conditionId);
+                const txHash = await this.execute(pos.conditionId, pos);
                 if (txHash) {
                     count++;
                 }

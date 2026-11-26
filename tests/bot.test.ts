@@ -869,3 +869,113 @@ Deno.test("ReplicateTradeUseCase - passe token_id au contrôle slippage et throt
     assertEquals(priceLookupId, tokenId);
     assertEquals(recordedRejections, 2);
 });
+
+Deno.test("ReplicateTradeUseCase - High-Water Mark empêche une défaite (RESOLVED_LOSS) de débloquer du CASH protégé", async () => {
+    let currentMetrics = {
+        realizedPnlUsdc: 200.0,
+        peakRealizedPnlUsdc: 200.0,
+        availableCashUsdc: 150.0,
+        initialCapitalUsdc: 150.0,
+    };
+
+    const mockApiClient = {
+        getMetrics: async () => currentMetrics,
+    };
+
+    const useCase = new ReplicateTradeUseCase(
+        mockApiClient as unknown as IApiClientPort,
+        {} as unknown as IExecutorPort,
+        {} as unknown as INotifierPort
+    );
+
+    const makePos = (id: string, invested: number): OpenPosition =>
+        ({
+            id,
+            conditionId: `0x${id}`,
+            assetAddress: "0x1111111111111111111111111111111111111111",
+            marketSlug: "m",
+            marketQuestion: "Q?",
+            outcomeLabel: "Yes",
+            status: "OPEN",
+            totalShares: invested * 2,
+            avgEntryPrice: 0.5,
+            totalInvestedUsdc: invested,
+            currentMarketPrice: 0.5,
+            currentMarketValueUsdc: invested,
+            unrealizedPnlUsdc: 0,
+            unrealizedPnlPercent: 0,
+            targetAddress: "0x2222222222222222222222222222222222222222",
+            openedAt: Date.now(),
+            updatedAt: Date.now(),
+        }) as OpenPosition;
+
+    const config50: RiskConfig = {
+        balancePercentPerTrade: 0.1,
+        maxSlippagePercent: 3.0,
+        maxCapPerTradeUsdc: 50.0,
+        maxExposurePerMarketUsdc: 150.0,
+        maxExposurePerTargetUsdc: 300.0,
+        minCashReserveUsdc: 5.0,
+        minPrice: 0.05,
+        maxPrice: 0.9,
+        copySellOrders: true,
+        dryRun: true,
+        simulatedBalanceUsdc: 150.0,
+        maxAllocatedCapitalUsdc: 250.0,
+        profitReinvestmentPercent: 50.0,
+        isBotRunning: true,
+        isBotOnline: true,
+    };
+
+    // État avant perte : base 250 + realized 200 - sanctuarisé (200 * 50% = 100) = budget 350.
+    // Positions ouvertes : 346$ -> reste 4$ (<= réserve 5$, bot bloqué).
+    const beforeLoss50 = await useCase.calculateEffectiveBalance(150.0, config50, [
+        makePos("p1", 326.0),
+        makePos("p2", 20.0),
+    ]);
+    assertEquals(beforeLoss50.maxBotBudget, 350.0);
+    assertEquals(beforeLoss50.botRemainingCash, 4.0);
+
+    // Clôture de p2 (20$) en RESOLVED_LOSS (payout = 0$, PnL = -20$) :
+    // realizedPnl passe de 200 -> 180, peak reste 200 (sanctuarisé toujours 100$), openInv passe 346 -> 326.
+    currentMetrics = {
+        realizedPnlUsdc: 180.0,
+        peakRealizedPnlUsdc: 200.0,
+        availableCashUsdc: 150.0,
+        initialCapitalUsdc: 150.0,
+    };
+    const afterLoss50 = await useCase.calculateEffectiveBalance(150.0, config50, [
+        makePos("p1", 326.0),
+    ]);
+    // Budget baisse exactement de 20$ (350 -> 330), donc botRemainingCash reste strictement à 4$ (delta = 0$) !
+    assertEquals(afterLoss50.maxBotBudget, 330.0);
+    assertEquals(afterLoss50.botRemainingCash, 4.0);
+
+    // Même vérification en mode 0% réinvestissement (100% gains protégés) :
+    const config0: RiskConfig = { ...config50, profitReinvestmentPercent: 0.0 };
+    currentMetrics = {
+        realizedPnlUsdc: 200.0,
+        peakRealizedPnlUsdc: 200.0,
+        availableCashUsdc: 200.0,
+        initialCapitalUsdc: 150.0,
+    };
+    const beforeLoss0 = await useCase.calculateEffectiveBalance(200.0, config0, [
+        makePos("p1", 230.0),
+        makePos("p2", 20.0),
+    ]);
+    assertEquals(beforeLoss0.maxBotBudget, 250.0);
+    assertEquals(beforeLoss0.botRemainingCash, 0.0);
+
+    currentMetrics = {
+        realizedPnlUsdc: 180.0,
+        peakRealizedPnlUsdc: 200.0,
+        availableCashUsdc: 200.0,
+        initialCapitalUsdc: 150.0,
+    };
+    const afterLoss0 = await useCase.calculateEffectiveBalance(200.0, config0, [
+        makePos("p1", 230.0),
+    ]);
+    // Aucune ponction du coffre protégé : budget 250 + 180 - 200 = 230 -> reste toujours 0$ !
+    assertEquals(afterLoss0.maxBotBudget, 230.0);
+    assertEquals(afterLoss0.botRemainingCash, 0.0);
+});

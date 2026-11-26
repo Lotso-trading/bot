@@ -75,6 +75,8 @@ export class SettlePositionsUseCase {
 
             try {
                 const closed = await this.apiClient.closePosition(pos.conditionId, {
+                    positionId: pos.id,
+                    assetAddress: pos.assetAddress,
                     closeReason,
                     ...(resolution.winningOutcome
                         ? { winningOutcome: resolution.winningOutcome }

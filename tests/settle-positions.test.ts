@@ -88,6 +88,8 @@ Deno.test("SettlePositionsUseCase - clôture via Gamma API fallback quand CLOB n
             payload: ClosePositionInput;
         };
         assertEquals(closeCall.conditionId, openPos.conditionId);
+        assertEquals(closeCall.payload.positionId, openPos.id);
+        assertEquals(closeCall.payload.assetAddress, openPos.assetAddress);
         assertEquals(closeCall.payload.closeReason, "RESOLVED_WIN");
         assertEquals(closeCall.payload.settledPayoutUsdc, 100);
     } finally {

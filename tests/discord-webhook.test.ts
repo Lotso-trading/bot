@@ -212,3 +212,68 @@ Deno.test("DiscordWebhookAdapter - ne déclenche AUCUN appel HTTP pour les rejet
     // Strictement 0 appel réseau effectué !
     assertEquals(callCount, 0);
 });
+
+Deno.test("DiscordWebhookAdapter - route les alertes Auto-Redeem sur autoRedeemWebhookUrl dédiée avec fallback", async () => {
+    const postedUrls: string[] = [];
+    let lastPayload: DiscordWebhookPayload | null = null;
+
+    const mockFetcher = (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        postedUrls.push(String(input));
+        if (init?.body) {
+            lastPayload = JSON.parse(String(init.body)) as DiscordWebhookPayload;
+        }
+        return Promise.resolve(new Response(null, { status: 204 }));
+    };
+
+    const position: OpenPosition = {
+        id: "pos-redeem-1",
+        conditionId: "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        assetAddress: "0x2005d16a84ceefa912d4e380c2f1f422847cbbdb",
+        marketSlug: "fed-rate-cut-2026",
+        marketQuestion: "Will Fed cut rates in 2026?",
+        outcomeLabel: "Yes",
+        status: "CLOSED",
+        closeReason: "RESOLVED_WIN",
+        settledPayoutUsdc: 25.5,
+        realizedPnlUsdc: 10.5,
+        totalShares: 25.5,
+        avgEntryPrice: 0.588,
+        totalInvestedUsdc: 15.0,
+        currentMarketPrice: 1.0,
+        currentMarketValueUsdc: 25.5,
+        unrealizedPnlUsdc: 0,
+        unrealizedPnlPercent: 0,
+        targetAddress: "0x2005d16a84ceefa912d4e380c2f1f422847cbbdb",
+        openedAt: Date.now() - 3600000,
+        updatedAt: Date.now(),
+    };
+
+    // Cas 1 : autoRedeemWebhookUrl dédiée renseignée
+    const dedicatedAdapter = new DiscordWebhookAdapter(
+        {
+            buyWebhookUrl: "https://discord.com/api/webhooks/test/buy",
+            sellWebhookUrl: "https://discord.com/api/webhooks/test/sell",
+            closedPositionsWebhookUrl: "https://discord.com/api/webhooks/test/closed",
+            autoRedeemWebhookUrl: "https://discord.com/api/webhooks/test/auto-redeem",
+        },
+        mockFetcher as unknown as typeof fetch
+    );
+    await dedicatedAdapter.sendRedeemAlert(position, "sim_tx_redeem_123", true);
+    assertEquals(postedUrls[0], "https://discord.com/api/webhooks/test/auto-redeem");
+    const payload = lastPayload as DiscordWebhookPayload | null;
+    assertEquals(
+        payload?.embeds?.[0]?.title,
+        "⚡ Auto-Redeem : Gain Réclamé avec Succès ! [SIMULATION]"
+    );
+
+    // Cas 2 : fallback sur closedPositionsWebhookUrl si autoRedeemWebhookUrl est absente
+    const fallbackAdapter = new DiscordWebhookAdapter(
+        {
+            buyWebhookUrl: "https://discord.com/api/webhooks/test/buy",
+            closedPositionsWebhookUrl: "https://discord.com/api/webhooks/test/closed",
+        },
+        mockFetcher as unknown as typeof fetch
+    );
+    await fallbackAdapter.sendRedeemAlert(position, "sim_tx_redeem_456", true);
+    assertEquals(postedUrls[1], "https://discord.com/api/webhooks/test/closed");
+});

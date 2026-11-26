@@ -220,8 +220,15 @@ export class ReplicateTradeUseCase {
         }
 
         const realizedPnl = metrics?.realizedPnlUsdc ?? 0;
-        const allowedGains = realizedPnl > 0 ? realizedPnl * reinvestRate : realizedPnl;
-        const maxBotBudget = Math.max(0, baseCapital + allowedGains);
+        // High-Water Mark : la part sanctuarisée reste verrouillée sur le pic de gains réalisés,
+        // ainsi une défaite (payout = 0) ne réduit jamais le coffre protégé et ne débloque aucun cash supplémentaire.
+        const peakRealizedPnl = Math.max(
+            0,
+            realizedPnl,
+            metrics?.peakRealizedPnlUsdc ?? realizedPnl
+        );
+        const sanctuarizedProfit = peakRealizedPnl * (1 - reinvestRate);
+        const maxBotBudget = Math.max(0, baseCapital + realizedPnl - sanctuarizedProfit);
 
         const totalInvested = allPositions.reduce((sum, p) => sum + (p.totalInvestedUsdc || 0), 0);
         const botRemainingCash = Math.max(0, maxBotBudget - totalInvested);

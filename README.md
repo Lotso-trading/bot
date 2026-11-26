@@ -72,6 +72,7 @@ RISK_BALANCE_PERCENT_PER_TRADE=5.0
 # Alertes
 DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..."
 DISCORD_CLOSED_POSITIONS_WEBHOOK_URL="https://discord.com/api/webhooks/..."
+DISCORD_AUTO_REDEEM_WEBHOOK_URL="https://discord.com/api/webhooks/..."
 
 # Synchronisation API Core
 BACKEND_API_URL="http://localhost:3000"

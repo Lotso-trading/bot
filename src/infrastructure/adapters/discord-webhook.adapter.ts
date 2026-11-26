@@ -12,12 +12,14 @@ export interface DiscordWebhookConfig {
     buyWebhookUrl?: string;
     sellWebhookUrl?: string;
     closedPositionsWebhookUrl?: string;
+    autoRedeemWebhookUrl?: string;
     webhookUrl?: string;
 }
 
 export class DiscordWebhookAdapter implements INotifierPort {
     private readonly buyWebhookUrl?: string;
     private readonly sellWebhookUrl?: string;
+    private readonly autoRedeemWebhookUrl?: string;
     private readonly fetcher: typeof fetch;
 
     constructor(options?: DiscordWebhookConfig | string, fetcher: typeof fetch = fetch) {
@@ -25,10 +27,16 @@ export class DiscordWebhookAdapter implements INotifierPort {
         if (typeof options === "string") {
             this.buyWebhookUrl = options;
             this.sellWebhookUrl = options;
+            this.autoRedeemWebhookUrl = options;
         } else if (options) {
             this.buyWebhookUrl = options.buyWebhookUrl || options.webhookUrl;
             this.sellWebhookUrl =
                 options.closedPositionsWebhookUrl || options.sellWebhookUrl || options.webhookUrl;
+            this.autoRedeemWebhookUrl =
+                options.autoRedeemWebhookUrl ||
+                options.closedPositionsWebhookUrl ||
+                options.sellWebhookUrl ||
+                options.webhookUrl;
         }
     }
 
@@ -185,7 +193,7 @@ export class DiscordWebhookAdapter implements INotifierPort {
     }
 
     async sendRedeemAlert(position: OpenPosition, txHash: string, isDryRun = false): Promise<void> {
-        const targetUrl = this.sellWebhookUrl || this.buyWebhookUrl;
+        const targetUrl = this.autoRedeemWebhookUrl || this.sellWebhookUrl || this.buyWebhookUrl;
         if (!targetUrl) return;
 
         const payload = buildAutoRedeemEmbed(position, txHash, isDryRun);

@@ -44,7 +44,7 @@ Deno.test("AutoRedeemUseCase - exécute le rachat, enregistre la tx sur l'API et
         recordPositionRedeemed: (condId: string, tx: string) => {
             recordedConditionId = condId;
             recordedTxHash = tx;
-            return Promise.resolve();
+            return Promise.resolve(null);
         },
         sendHeartbeat: () => Promise.resolve(),
         sendShutdown: () => Promise.resolve(),
@@ -89,7 +89,7 @@ Deno.test("AutoRedeemUseCase - bloque les exécutions concurrentes sur la même 
         getOpenPosition: () => Promise.resolve(null),
         getAllOpenPositions: () => Promise.resolve([]),
         recordTrade: () => Promise.reject(new Error("not implemented")),
-        recordPositionRedeemed: () => Promise.resolve(),
+        recordPositionRedeemed: () => Promise.resolve(null),
         sendHeartbeat: () => Promise.resolve(),
         sendShutdown: () => Promise.resolve(),
     };
@@ -132,7 +132,7 @@ Deno.test("AutoRedeemUseCase - redeemAllPending réclame toutes les positions no
             Promise.resolve([createMockPosition("0xpos_alpha"), createMockPosition("0xpos_beta")]),
         recordPositionRedeemed: (condId: string) => {
             redeemedSet.add(condId);
-            return Promise.resolve();
+            return Promise.resolve(null);
         },
         recordTrade: () => Promise.reject(new Error("not implemented")),
         sendHeartbeat: () => Promise.resolve(),
@@ -163,7 +163,7 @@ Deno.test("AutoRedeemUseCase - empêche un double rachat séquentiel sur le mêm
         getBotConfig: () => Promise.reject(new Error("not implemented")),
         getOpenPosition: () => Promise.resolve(null),
         getAllOpenPositions: () => Promise.resolve([]),
-        recordPositionRedeemed: () => Promise.resolve(),
+        recordPositionRedeemed: () => Promise.resolve(null),
         recordTrade: () => Promise.reject(new Error("not implemented")),
         sendHeartbeat: () => Promise.resolve(),
         sendShutdown: () => Promise.resolve(),
@@ -187,4 +187,45 @@ Deno.test("AutoRedeemUseCase - empêche un double rachat séquentiel sur le mêm
     assertEquals(first, "tx_once_0xrepeat_guard");
     assertEquals(second, null);
     assertEquals(redeemCalls, 1);
+});
+
+Deno.test("AutoRedeemUseCase - envoie l'alerte Discord avec la position retournée par recordPositionRedeemed même si getOpenPosition retourne null", async () => {
+    let alertedPositionId = "";
+    const closedPos = createMockPosition("0xclosed_win_only");
+
+    const mockApiClient: IApiClientPort = {
+        getActiveTargets: () => Promise.resolve([]),
+        getBotConfig: () => Promise.reject(new Error("not implemented")),
+        getOpenPosition: () => Promise.resolve(null),
+        getAllOpenPositions: () => Promise.resolve([]),
+        recordTrade: () => Promise.reject(new Error("not implemented")),
+        recordPositionRedeemed: () => Promise.resolve(closedPos),
+        sendHeartbeat: () => Promise.resolve(),
+        sendShutdown: () => Promise.resolve(),
+    };
+
+    const mockExecutor: IExecutorPort = {
+        executeBuy: () => Promise.reject(new Error("not implemented")),
+        executeSell: () => Promise.reject(new Error("not implemented")),
+        getAvailableBalanceUsdc: () => Promise.resolve(100),
+        getCurrentBestPrice: () => Promise.resolve(1),
+        redeemWinningPosition: (condId: string) => Promise.resolve(`sim_tx_${condId}`),
+    };
+
+    const mockNotifier: INotifierPort = {
+        sendBuyAlert: () => Promise.resolve(),
+        sendSellAlert: () => Promise.resolve(),
+        sendRejectionAlert: () => Promise.resolve(),
+        sendErrorAlert: () => Promise.resolve(),
+        sendRedeemAlert: (pos) => {
+            alertedPositionId = pos.id;
+            return Promise.resolve();
+        },
+    };
+
+    const useCase = new AutoRedeemUseCase(mockApiClient, mockExecutor, mockNotifier, true);
+    const tx = await useCase.execute(closedPos.conditionId);
+
+    assertEquals(tx, `sim_tx_${closedPos.conditionId}`);
+    assertEquals(alertedPositionId, closedPos.id);
 });

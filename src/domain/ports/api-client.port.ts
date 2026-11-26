@@ -13,13 +13,17 @@ export interface IApiClientPort {
     getAllOpenPositions(): Promise<OpenPosition[]>;
     getMetrics?(): Promise<{
         realizedPnlUsdc: number;
+        peakRealizedPnlUsdc?: number;
         availableCashUsdc?: number;
         initialCapitalUsdc?: number;
         totalSettledPayoutUsdc?: number;
     } | null>;
     recordTrade(trade: ExecutedTrade): Promise<ExecutedTrade>;
     getUnredeemedWinningPositions?(): Promise<OpenPosition[]>;
-    recordPositionRedeemed?(conditionId: string, txHash: string): Promise<void>;
+    recordPositionRedeemed?(
+        conditionId: string,
+        txHash: string
+    ): Promise<OpenPosition | null | undefined>;
     closePosition?(conditionId: string, payload: ClosePositionInput): Promise<OpenPosition | null>;
     sendHeartbeat(version?: string): Promise<void>;
     sendShutdown(): Promise<void>;

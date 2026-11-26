@@ -114,6 +114,7 @@ export class ApiBackendClientAdapter implements IApiClientPort {
 
     async getMetrics(): Promise<{
         realizedPnlUsdc: number;
+        peakRealizedPnlUsdc?: number;
         availableCashUsdc?: number;
         initialCapitalUsdc?: number;
         totalSettledPayoutUsdc?: number;
@@ -123,6 +124,7 @@ export class ApiBackendClientAdapter implements IApiClientPort {
                 success: boolean;
                 data?: {
                     realizedPnlUsdc: number;
+                    peakRealizedPnlUsdc?: number;
                     availableCashUsdc?: number;
                     initialCapitalUsdc?: number;
                     totalSettledPayoutUsdc?: number;
@@ -170,18 +172,23 @@ export class ApiBackendClientAdapter implements IApiClientPort {
         }
     }
 
-    async recordPositionRedeemed(conditionId: string, txHash: string): Promise<void> {
+    async recordPositionRedeemed(
+        conditionId: string,
+        txHash: string
+    ): Promise<OpenPosition | null> {
         try {
-            await axios.post(
+            const res = await axios.post<{ success: boolean; data?: OpenPosition }>(
                 `${this.baseUrl}/api/positions/${conditionId}/redeem`,
                 { txHash },
                 { timeout: 5000 }
             );
+            return res.data?.data ?? null;
         } catch (err: unknown) {
             console.warn(
                 `[ApiClient] Erreur notification rachat pour conditionId=${conditionId}:`,
                 err
             );
+            return null;
         }
     }
 
